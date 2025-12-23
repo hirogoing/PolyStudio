@@ -42,6 +42,9 @@ Thumbs.db
 *.log
 logs/
 
+# Storage (运行时数据，不应提交到仓库)
+backend/storage/
+
 
 
 
