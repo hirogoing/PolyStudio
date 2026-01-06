@@ -1,0 +1,15 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+langchain==1.0.0
+langchain-core==1.0.0
+langchain-openai==1.0.0
+langgraph>=1.0.0,<1.1.0
+langgraph-prebuilt>=1.0.0,<1.1.0
+python-dotenv==1.0.0
+pydantic>=2.7.4,<3.0.0
+sse-starlette==1.8.2
+aiofiles==23.2.1
+httpx==0.25.2
+anyio<4.0.0,>=3.7.1
+Pillow==10.4.0
+

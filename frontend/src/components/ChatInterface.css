@@ -1,0 +1,1112 @@
+/* 主题变量：用 data-theme 控制，避免被后加载的 CSS 覆盖成固定深色 */
+:root {
+  --primary-color: #2563eb;
+  --primary-hover: #1d4ed8;
+  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+  --radius-sm: 0.5rem;
+}
+
+[data-theme="dark"] {
+  --bg-color: #070a12;
+  --panel-bg: rgba(15, 23, 42, 0.92);
+  --text-primary: rgba(229, 231, 235, 0.95);
+  --text-secondary: rgba(229, 231, 235, 0.65);
+  --border-color: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 14px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --bg-color: #f8fafc;
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --text-primary: rgba(15, 23, 42, 0.96);
+  --text-secondary: rgba(15, 23, 42, 0.64);
+  --border-color: rgba(15, 23, 42, 0.12);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 26px 60px rgba(15, 23, 42, 0.12);
+}
+
+.chat-interface {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.interface-layout {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 画板区域 */
+.canvas-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-color);
+  z-index: 0;
+}
+
+.canvas-content {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background-image: 
+    radial-gradient(#cbd5e1 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Excalidraw 会自己管理背景/网格，避免与旧背景叠加 */
+.canvas-content.excalidraw-host-container {
+  background-image: none;
+}
+
+.excalidraw-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.excalidraw-host .excalidraw {
+  width: 100%;
+  height: 100%;
+}
+
+/* 暂时去掉 Excalidraw 素材库入口（Library） */
+.excalidraw-host .default-sidebar-trigger,
+.excalidraw-host .sidebar-trigger__label-element {
+  display: none !important;
+}
+
+/* 隐藏 Excalidraw 左上角主菜单（汉堡/目录）按钮 */
+.excalidraw-host .dropdown-menu-button,
+.excalidraw-host button[aria-label="菜单"],
+.excalidraw-host button[aria-label="Menu"],
+.excalidraw-host button[title="菜单"],
+.excalidraw-host button[title="Menu"] {
+  display: none !important;
+}
+
+/* ----------------------------------- */
+/* Excalidraw 右键菜单：只美化“容器”，避免把内部布局弄乱 */
+/* ----------------------------------- */
+.excalidraw-host .polystudio-excalidraw-menu {
+  border-radius: 16px !important;
+  border: 1px solid var(--border-color) !important;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.86)) !important;
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.45),
+    0 0 90px rgba(37, 99, 235, 0.14),
+    0 0 110px rgba(168, 85, 247, 0.10) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: 6px !important; /* 只影响容器内边距，不改 item 的布局 */
+  overflow: hidden;
+}
+
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.92)) !important;
+  box-shadow:
+    0 22px 60px rgba(15, 23, 42, 0.12),
+    0 0 90px rgba(37, 99, 235, 0.10),
+    0 0 110px rgba(168, 85, 247, 0.08) !important;
+}
+
+/* 只做“观感”增强：不重置 padding/margin/display（避免再次把布局弄乱） */
+.excalidraw-host .polystudio-excalidraw-menu * {
+  color: var(--text-primary);
+}
+
+/* hover/选中态：不改尺寸，只改背景 */
+.excalidraw-host .polystudio-excalidraw-menu [role="menuitem"]:hover,
+.excalidraw-host .polystudio-excalidraw-menu .context-menu-item:hover,
+.excalidraw-host .polystudio-excalidraw-menu button:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu [role="menuitem"]:hover,
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu .context-menu-item:hover,
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu button:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+/* 快捷键：做成项目列表 chip 的质感（通常是 kbd） */
+.excalidraw-host .polystudio-excalidraw-menu kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(229, 231, 235, 0.82);
+}
+
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu kbd {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.74);
+}
+
+/* 隐藏所有分隔线：兼容 hr / role=separator / 我们注入的 separator / Excalidraw 自己的分隔线 */
+.excalidraw-host .polystudio-excalidraw-menu hr,
+.excalidraw-host .polystudio-excalidraw-menu [role="separator"],
+.excalidraw-host .polystudio-excalidraw-menu .polystudio-context-separator,
+.excalidraw-host .polystudio-excalidraw-menu .separator,
+.excalidraw-host .polystudio-excalidraw-menu [class*="separator"],
+.excalidraw-host .polystudio-excalidraw-menu [class*="divider"] {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  visibility: hidden !important;
+}
+
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu hr,
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu [role="separator"],
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu .polystudio-context-separator,
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu .separator,
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu [class*="separator"],
+[data-theme="light"] .excalidraw-host .polystudio-excalidraw-menu [class*="divider"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* 画板控制栏 */
+.canvas-controls {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 50;
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  border-radius: 2rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.control-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+}
+
+.control-btn.primary {
+  background-color: var(--primary-color);
+  color: white;
+  border-color: transparent;
+}
+
+.control-btn.primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.control-btn.active {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 历史记录下拉菜单 */
+.canvas-history-wrapper {
+  position: relative;
+}
+
+.canvas-history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  width: 320px;
+  background-color: rgba(15, 23, 42, 0.96);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.close-history {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.close-history:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.history-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.history-item.active {
+  background-color: rgba(37, 99, 235, 0.16);
+  border: 1px solid rgba(37, 99, 235, 0.35);
+}
+
+.history-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.history-item.active .history-item-icon {
+  background-color: rgba(37, 99, 235, 0.22);
+  color: var(--primary-color);
+}
+
+.history-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.history-name-input {
+  width: 100%;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  outline: none;
+}
+
+.history-name-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.history-date {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.history-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background-color: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 10px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.delete-canvas-btn {
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.rename-canvas-btn {
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.history-item:hover .rename-canvas-btn {
+  opacity: 1;
+}
+
+.rename-canvas-btn:hover {
+  background-color: rgba(37, 99, 235, 0.16);
+  color: rgba(229, 231, 235, 0.95);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.history-item:hover .delete-canvas-btn {
+  opacity: 1;
+}
+
+.delete-canvas-btn:hover {
+  background-color: rgba(244, 63, 94, 0.16);
+  color: rgba(229, 231, 235, 0.95);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+}
+
+.canvas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  gap: 1rem;
+  user-select: none;
+}
+
+.empty-icon {
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+
+.empty-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.canvas-hint {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.canvas-area {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.canvas-image-item {
+  position: absolute;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: #fff;
+  box-shadow: var(--shadow-md);
+  border: 2px solid transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: grab;
+}
+
+.canvas-image-item:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.canvas-image-item.dragging {
+  cursor: grabbing;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border-color: var(--primary-color);
+  z-index: 1000;
+  opacity: 0.9;
+}
+
+.canvas-image-item img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* 悬浮展开按钮 */
+.floating-chat-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 90;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.floating-chat-btn:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 对话面板 */
+.chat-panel {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  bottom: 20px;
+  width: 380px;
+  /* 深蓝黑 + 玻璃拟态底色（和首页一致） */
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.90));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, 0.55),
+    0 0 90px rgba(37, 99, 235, 0.16),
+    0 0 110px rgba(168, 85, 247, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  isolation: isolate;
+}
+
+/* Light: 让“对话 bot 面板”真正跟主题走 */
+[data-theme="light"] .chat-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.92));
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow:
+    0 18px 45px rgba(15, 23, 42, 0.10),
+    0 0 90px rgba(37, 99, 235, 0.10),
+    0 0 110px rgba(168, 85, 247, 0.08);
+}
+
+[data-theme="light"] .chat-panel::before {
+  opacity: 0.55;
+}
+
+[data-theme="light"] .chat-header {
+  background: rgba(15, 23, 42, 0.03);
+  border-bottom-color: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="light"] .chat-input-container {
+  background: rgba(255, 255, 255, 0.72);
+  border-top-color: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="light"] .assistant-message .message-content {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .tool-call-header {
+  background-color: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="light"] .tool-details {
+  background-color: rgba(255, 255, 255, 0.78);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: rgba(15, 23, 42, 0.88);
+}
+
+/* 防止 scrollIntoView/浏览器滚动算法把 chat-panel 当滚动容器滚动，造成“底部留空、内容上移” */
+@supports (overflow: clip) {
+  .chat-panel {
+    overflow: clip;
+  }
+}
+
+.chat-panel::before {
+  content: "";
+  position: absolute;
+  inset: -160px;
+  background:
+    radial-gradient(520px 360px at 15% 10%, rgba(37, 99, 235, 0.35), transparent 60%),
+    radial-gradient(520px 360px at 88% 18%, rgba(168, 85, 247, 0.28), transparent 58%),
+    radial-gradient(620px 420px at 45% 88%, rgba(16, 185, 129, 0.16), transparent 62%),
+    radial-gradient(760px 520px at 70% 78%, rgba(244, 63, 94, 0.12), transparent 58%);
+  filter: blur(26px);
+  opacity: 0.95;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.chat-panel.collapsed {
+  transform: translateX(calc(100% + 40px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-header {
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title h1 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+.header-title p {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.close-chat-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-chat-btn:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+/* 消息列表 */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.empty-icon-wrapper {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background-color: rgba(37, 99, 235, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.empty-icon-inner {
+  color: var(--primary-color);
+}
+
+.empty-state h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem 0;
+}
+
+.empty-state p {
+  font-size: 0.875rem;
+  max-width: 200px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* 消息气泡 */
+.message {
+  display: flex;
+  width: 100%;
+  margin-bottom: 0.35rem;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.user-message {
+  justify-content: flex-end;
+  padding-left: 20%;
+}
+
+.assistant-message {
+  justify-content: flex-start;
+  padding-right: 10%;
+}
+
+/* 消息内容容器 */
+.message-content {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  padding: 0.72rem 0.85rem;
+  border-radius: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.user-message .message-content {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(168, 85, 247, 0.82));
+  color: white;
+  border-bottom-right-radius: 0.25rem;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    0 0 30px rgba(37, 99, 235, 0.22);
+}
+
+.assistant-message .message-content {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-bottom-left-radius: 0.25rem;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+
+/* Light: 用户气泡不要紫色渐变，改为浅色底 + 深色字 */
+[data-theme="light"] .user-message .message-content {
+  background: rgba(37, 99, 235, 0.12);
+  color: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+/* Markdown 文本样式 */
+.message-text {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.message-text p {
+  margin: 0.5rem 0;
+  max-width: 100%;
+}
+
+.message-text p:first-child {
+  margin-top: 0;
+}
+
+.message-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* 打字机光标 */
+.typing-cursor {
+  display: inline-block;
+  width: 4px;
+  height: 1em;
+  background-color: var(--primary-color);
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ----------------------------------- */
+/* 工具调用新样式 - 极简设计 */
+/* ----------------------------------- */
+.tool-calls-container {
+  margin: 0.5rem 0 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tool-call-wrapper {
+  background-color: transparent;
+}
+
+.tool-call-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.tool-call-header:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.tool-call-header.executing {
+  border-color: rgba(59, 130, 246, 0.45);
+  background-color: rgba(37, 99, 235, 0.14);
+  animation: breathing 2s infinite;
+}
+
+@keyframes breathing {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.1); border-color: #93c5fd; }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15); border-color: #60a5fa; }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.1); border-color: #93c5fd; }
+}
+
+.tool-status-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 闪烁的点 */
+.pulsing-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #3b82f6;
+  border-radius: 50%;
+  animation: pulse-dot 1s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
+}
+
+.status-dot.done {
+  width: 8px;
+  height: 8px;
+  background-color: #10b981;
+  border-radius: 50%;
+}
+
+.tool-name {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: rgba(229, 231, 235, 0.78);
+}
+
+.tool-toggle-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(229, 231, 235, 0.55);
+  margin-left: 2px;
+}
+
+/* Light: 工具标题/函数名一行的文字别用白色 */
+[data-theme="light"] .tool-name {
+  color: rgba(15, 23, 42, 0.78);
+}
+
+[data-theme="light"] .tool-toggle-icon {
+  color: rgba(15, 23, 42, 0.55);
+}
+
+/* 工具详情展开区域 */
+.tool-details {
+  margin-top: 0.35rem;
+  margin-left: 0.25rem;
+  padding: 0.6rem;
+  background-color: rgba(2, 6, 23, 0.55);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: rgba(229, 231, 235, 0.85);
+  width: 100%;
+  overflow-x: auto;
+}
+
+.tool-section {
+  margin-bottom: 0.55rem;
+}
+
+.tool-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-label {
+  display: block;
+  font-size: 0.68rem;
+  color: rgba(229, 231, 235, 0.55);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tool-details pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* 图片样式 */
+.message-images {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.message-image {
+  margin-top: 0.55rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  width: 100%;
+  /* 去掉白边：移除背景色和padding */
+}
+
+.message-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 400px;
+  /* 聊天侧不要裁切，否则同一张图露出的区域不同会让“金色观感”差得更明显 */
+  object-fit: contain;
+}
+
+/* 输入区域 */
+.uploaded-images-preview {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-color);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.uploaded-image-item {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.uploaded-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.2s;
+}
+
+.remove-image-btn:hover {
+  background: rgba(220, 38, 38, 0.8);
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+
+.upload-image-button {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.upload-image-button:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.upload-image-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-input-container {
+  background: rgba(15, 23, 42, 0.72);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-input-container .input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+
+
+.chat-input {
+  flex: 1;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  resize: none;
+  max-height: 120px;
+  min-height: 44px;
+  transition: all 0.2s;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  background-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+}
+
+.send-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background-color: var(--primary-color);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  transform: scale(1.05);
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+}
+
+.send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #94a3b8;
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .chat-panel {
+    width: 100%;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: 80vh;
+    border-radius: 1.5rem 1.5rem 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  .chat-panel.collapsed {
+    transform: translateY(100%);
+  }
+
+  .floating-chat-btn {
+    top: auto;
+    bottom: 24px;
+  }
+}
