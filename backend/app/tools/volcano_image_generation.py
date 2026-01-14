@@ -39,6 +39,15 @@ VOLCANO_BASE_URL = os.getenv("VOLCANO_BASE_URL", "https://ark.cn-beijing.volces.
 VOLCANO_IMAGE_MODEL = os.getenv("VOLCANO_IMAGE_MODEL", "seedream-4.5").strip()
 # 若编辑模型不同，可单独配置；缺省复用生成模型
 VOLCANO_EDIT_MODEL = os.getenv("VOLCANO_EDIT_MODEL", VOLCANO_IMAGE_MODEL).strip()
+# Mock 模式配置
+MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+# Mock 图片路径（启用 MOCK_MODE 时必须配置）
+MOCK_IMAGE_PATH = os.getenv("MOCK_IMAGE_PATH", "").strip()
+if MOCK_MODE and not MOCK_IMAGE_PATH:
+    raise RuntimeError(
+        "MOCK_MODE=true 时，必须配置 MOCK_IMAGE_PATH。"
+        "请在 backend/.env 中设置 MOCK_IMAGE_PATH=/storage/images/your_image.png"
+    )
 
 # 图片存储目录
 STORAGE_DIR = BASE_DIR / "storage"
@@ -312,11 +321,10 @@ class GenerateVolcanoImageInput(BaseModel):
     """火山引擎图像生成输入参数"""
     prompt: str = Field(description="图像生成的提示词，详细描述想要生成的图像内容，支持中英文")
     size: str = Field(default="1:1", description="图片尺寸，支持宽高比枚举（1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3, 21:9）或自定义格式（如 2048x2048），默认 1:1")
-    num_images: int = Field(default=1, description="生成图片数量，默认1")
 
 
 @tool("generate_volcano_image", args_schema=GenerateVolcanoImageInput)
-def generate_volcano_image_tool(prompt: str, size: str = "1:1", num_images: int = 1) -> str:
+def generate_volcano_image_tool(prompt: str, size: str = "1:1") -> str:
     """
     火山引擎 AI 绘画（图片生成）服务，使用 Seedream 4.0-4.5 API 生成图像。
     输入文本描述，返回基于文本信息绘制的图片 URL。
@@ -324,28 +332,41 @@ def generate_volcano_image_tool(prompt: str, size: str = "1:1", num_images: int 
     Args:
         prompt: 图像生成的提示词（支持中英文）
         size: 图片尺寸，支持宽高比枚举（1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3, 21:9）或自定义格式（如 2048x2048），默认 1:1
-        num_images: 生成图片数量，默认1
     
     Returns:
         生成的图像URL的JSON字符串或错误信息
     """
+    # Mock 模式：直接返回固定的图片路径
+    if MOCK_MODE:
+        logger.info(f"🎭 [MOCK模式] 生成图像: prompt={prompt}, size={size}")
+        result = {
+            'image_url': MOCK_IMAGE_PATH,
+            'original_url': MOCK_IMAGE_PATH,
+            'local_path': MOCK_IMAGE_PATH,
+            'prompt': prompt,
+            'provider': 'volcano',
+            'mock': True,
+            'message': '[MOCK] 图片已生成并保存到本地'
+        }
+        return json.dumps(result, ensure_ascii=False)
+    
     try:
         if not VOLCANO_API_KEY:
             return "Error generating image: 未配置 VOLCANO_API_KEY（请在 backend/.env 设置，可参考 env.example）"
         
         # 解析尺寸参数
         size_value = parse_size(size)
-        logger.info(f"🎨 开始使用火山引擎生成图像: prompt={prompt}, size={size} -> {size_value}, num={num_images}")
+        logger.info(f"🎨 开始使用火山引擎生成图像: prompt={prompt}, size={size} -> {size_value}")
 
         # 火山引擎 API 端点
         url = f"{VOLCANO_BASE_URL.rstrip('/')}/images/generations"
         
-        # 构建请求体
+        # 构建请求体（固定生成1张图片）
         payload = {
             "model": VOLCANO_IMAGE_MODEL,
             "prompt": prompt,
             "size": size_value,
-            "n": num_images,
+            "n": 1,
             "response_format": "url",  # 返回图片URL
             "stream": False,
             "watermark": True
@@ -372,50 +393,33 @@ def generate_volcano_image_tool(prompt: str, size: str = "1:1", num_images: int 
         
         # 解析返回结果
         # 火山引擎可能返回的格式: {"data": [{"url": "..."}]} 或 {"images": [{"url": "..."}]}
-        image_urls = []
+        image_url = None
         
-        if "data" in data and isinstance(data["data"], list):
-            image_urls = [item.get("url") for item in data["data"] if item.get("url")]
-        elif "images" in data and isinstance(data["images"], list):
-            image_urls = [item.get("url") for item in data["images"] if item.get("url")]
+        if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
+            image_url = data["data"][0].get("url")
+        elif "images" in data and isinstance(data["images"], list) and len(data["images"]) > 0:
+            image_url = data["images"][0].get("url")
         elif "url" in data:
-            image_urls = [data["url"]]
+            image_url = data["url"]
         
-        if not image_urls:
+        if not image_url:
             return f"Error: No image URL in response. Response: {json.dumps(data)}"
         
-        # 下载并保存所有图片
-        saved_paths = []
-        for idx, image_url in enumerate(image_urls):
-            if image_url:
-                # 为多张图片添加序号
-                prompt_with_idx = f"{prompt}_{idx+1}" if num_images > 1 else prompt
-                local_path = download_and_save_image(image_url, prompt_with_idx)
-                saved_paths.append(local_path)
+        # 下载并保存图片
+        local_path = download_and_save_image(image_url, prompt)
         
         # 返回结果
-        if len(saved_paths) == 1:
-            result = {
-                'image_url': saved_paths[0],
-                'original_url': image_urls[0],
-                'local_path': saved_paths[0],
-                'prompt': prompt,
-                'provider': 'volcano',
-                'message': '图片已生成并保存到本地'
-            }
-        else:
-            result = {
-                'image_urls': saved_paths,
-                'original_urls': image_urls,
-                'local_paths': saved_paths,
-                'prompt': prompt,
-                'provider': 'volcano',
-                'count': len(saved_paths),
-                'message': f'已生成 {len(saved_paths)} 张图片并保存到本地'
-            }
+        result = {
+            'image_url': local_path,
+            'original_url': image_url,
+            'local_path': local_path,
+            'prompt': prompt,
+            'provider': 'volcano',
+            'message': '图片已生成并保存到本地'
+        }
         
         result_json = json.dumps(result, ensure_ascii=False)
-        logger.info(f"✅ 火山引擎图像生成成功: 已保存 {len(saved_paths)} 张图片")
+        logger.info(f"✅ 火山引擎图像生成成功: 已保存到本地 {local_path}")
         return result_json
         
     except Exception as e:
@@ -445,6 +449,21 @@ def edit_volcano_image_tool(prompt: str, image_url: str, size: str = "1:1") -> s
     Returns:
         生成的图像URL的JSON字符串或错误信息
     """
+    # Mock 模式：直接返回固定的图片路径
+    if MOCK_MODE:
+        logger.info(f"🎭 [MOCK模式] 编辑图像: prompt={prompt}, image_url={image_url}, size={size}")
+        result = {
+            'image_url': MOCK_IMAGE_PATH,
+            'original_url': MOCK_IMAGE_PATH,
+            'local_path': MOCK_IMAGE_PATH,
+            'prompt': prompt,
+            'source_image': image_url,
+            'provider': 'volcano',
+            'mock': True,
+            'message': '[MOCK] 图片已编辑并保存到本地'
+        }
+        return json.dumps(result, ensure_ascii=False)
+    
     try:
         if not VOLCANO_API_KEY:
             return "Error editing image: 未配置 VOLCANO_API_KEY（请在 backend/.env 设置，可参考 env.example）"

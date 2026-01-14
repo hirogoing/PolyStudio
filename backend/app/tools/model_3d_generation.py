@@ -40,6 +40,16 @@ IMAGES_DIR = STORAGE_DIR / "images"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
+# Mock 模式配置（需要在 MODELS_DIR 定义之后）
+MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+# Mock 3D模型路径（启用 MOCK_MODE 时必须配置）
+MOCK_MODEL_PATH = os.getenv("MOCK_MODEL_PATH", "").strip()
+if MOCK_MODE and not MOCK_MODEL_PATH:
+    raise RuntimeError(
+        "MOCK_MODE=true 时，必须配置 MOCK_MODEL_PATH。"
+        "请在 backend/.env 中设置 MOCK_MODEL_PATH=/storage/models/your_model_dir"
+    )
+
 # 尝试导入PIL用于生成预览图
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -462,9 +472,7 @@ def generate_3d_model_tool(prompt: Optional[str] = None, image_url: Optional[str
     - 文生3D模式：仅使用文本提示词生成3D模型（prompt参数）
     - 图生3D模式：基于图片生成3D模型（image_url参数）
     - 混合模式：同时提供prompt和image_url，以文本提示词为主，图片作为参考
-    
-    必须配置 TENCENT_AI3D_API_KEY 才能使用。
-    
+        
     Args:
         prompt: 文本提示词，描述要生成的3D模型（文生3D模式，可选）
         image_url: 源图片URL或本地路径（图生3D模式，可选）
@@ -475,6 +483,21 @@ def generate_3d_model_tool(prompt: Optional[str] = None, image_url: Optional[str
     
     注意：prompt 和 image_url 至少需要提供一个。
     """
+    # Mock 模式：直接返回固定的模型路径
+    if MOCK_MODE:
+        logger.info(f"🎭 [MOCK模式] 生成3D模型: prompt={prompt}, image_url={image_url}, format={format}")
+        result = {
+            "model_path": f"{MOCK_MODEL_PATH}/model.obj",
+            "model_url": f"{MOCK_MODEL_PATH}/model.obj",
+            "preview_url": f"{MOCK_MODEL_PATH}/preview.png",
+            "format": format,
+            "prompt": prompt,
+            "image_url": image_url,
+            "mock": True,
+            "message": "[MOCK] 3D模型已生成并保存到本地"
+        }
+        return json.dumps(result, ensure_ascii=False)
+    
     try:
         # 验证至少提供了一个输入
         if not prompt and not image_url:
