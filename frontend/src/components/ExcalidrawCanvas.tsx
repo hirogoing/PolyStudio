@@ -31,10 +31,12 @@ export type ExcalidrawCanvasHandle = {
   addImage: (args: { url: string }) => Promise<void>
   sendImageToInput: (callback: (url: string) => void) => void
   add3DModelPreview: (args: { previewUrl: string; modelUrl: string; format: 'obj' | 'glb'; mtlUrl?: string; textureUrl?: string }) => Promise<void>
+  addVideo: (args: { videoUrl: string }) => Promise<void>
 }
 
 type ExcalidrawCanvasProps = Props & {
   on3DModelClick?: (modelUrl: string, format: 'obj' | 'glb', mtlUrl?: string, textureUrl?: string) => void
+  onVideoClick?: (videoUrl: string) => void
 }
 
 type Props = {
@@ -44,7 +46,8 @@ type Props = {
   onDataChange: (data: ExcalidrawCanvasData) => void
   onImageToInput?: (url: string) => void
   onThemeChange?: (theme: 'dark' | 'light') => void
-  on3DModelClick?: (modelUrl: string, format: 'obj' | 'glb') => void
+  on3DModelClick?: (modelUrl: string, format: 'obj' | 'glb', mtlUrl?: string, textureUrl?: string) => void
+  onVideoClick?: (videoUrl: string) => void
   onModalClose?: () => void
 }
 
@@ -148,7 +151,7 @@ function computeNextPosition(elements: any[], maxNumPerRow = 4, spacing = 20) {
 }
 
 export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
-  ({ canvasId, theme, initialData, onDataChange, onImageToInput, onThemeChange, on3DModelClick, onModalClose }, ref) => {
+  ({ canvasId, theme, initialData, onDataChange, onImageToInput, onThemeChange, on3DModelClick, onVideoClick, onModalClose }, ref) => {
     const [api, setApi] = useState<any>(null)
     const saveTimer = useRef<number | null>(null)
     const imageToInputCallbackRef = useRef<((url: string) => void) | null>(null)
@@ -287,6 +290,133 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
       return () => clearTimeout(timer)
     }, [])
 
+    // 监听并隐藏属性面板（当选中图片/视频时）
+    useEffect(() => {
+      if (!api) return
+
+      const hidePropertiesPanel = () => {
+        // 通过 CSS 选择器隐藏属性面板（更全面的选择器）
+        const selectors = [
+          '.excalidraw .sidebar',
+          '.excalidraw .Island[class*="sidebar"]',
+          '.excalidraw [class*="sidebar"]',
+          '.excalidraw .element-properties-panel',
+          '.excalidraw [data-testid="element-properties-panel"]',
+          '.excalidraw .Stack[class*="sidebar"]',
+          '.excalidraw div[class*="Sidebar"]',
+          '.excalidraw .element-panel',
+          '.excalidraw [class*="element-panel"]',
+          '.excalidraw [class*="PropertiesPanel"]',
+          '.excalidraw [class*="properties-panel"]',
+          // 更具体的选择器
+          '.excalidraw-host .excalidraw .sidebar',
+          '.excalidraw-host .excalidraw [class*="sidebar"]',
+          '.excalidraw-host [class*="sidebar"]',
+          // 查找包含"边角"、"透明度"等文本的元素
+          '.excalidraw [class*="Island"]:has-text("边角")',
+          '.excalidraw [class*="Island"]:has-text("透明度")',
+          '.excalidraw [class*="Island"]:has-text("图层")',
+          '.excalidraw [class*="Island"]:has-text("操作")',
+        ]
+
+        selectors.forEach(selector => {
+          try {
+            const elements = document.querySelectorAll(selector)
+            elements.forEach((el: Element) => {
+              const htmlEl = el as HTMLElement
+              htmlEl.style.display = 'none'
+              htmlEl.style.visibility = 'hidden'
+              htmlEl.style.opacity = '0'
+              htmlEl.style.width = '0'
+              htmlEl.style.height = '0'
+              htmlEl.style.overflow = 'hidden'
+              htmlEl.style.pointerEvents = 'none'
+            })
+          } catch (e) {
+            // 忽略选择器错误
+          }
+        })
+
+        // 额外：查找所有包含特定文本的元素（边角、透明度等）
+        const allElements = document.querySelectorAll('.excalidraw-host *')
+        allElements.forEach((el: Element) => {
+          const htmlEl = el as HTMLElement
+          const text: string = htmlEl.textContent || ''
+          if (text.indexOf('边角') >= 0 || text.indexOf('透明度') >= 0 || text.indexOf('图层') >= 0 || text.indexOf('操作') >= 0) {
+            // 检查是否是属性面板的一部分
+            const parent = htmlEl.closest('.excalidraw-host')
+            if (parent) {
+              // 检查父元素是否是侧边栏
+              const isSidebar = htmlEl.closest('[class*="sidebar"]') || 
+                               htmlEl.closest('[class*="Sidebar"]') ||
+                               htmlEl.closest('[class*="Island"]')
+              if (isSidebar) {
+                htmlEl.style.display = 'none'
+                htmlEl.style.visibility = 'hidden'
+                htmlEl.style.opacity = '0'
+                htmlEl.style.width = '0'
+                htmlEl.style.height = '0'
+                htmlEl.style.overflow = 'hidden'
+                htmlEl.style.pointerEvents = 'none'
+              }
+            }
+          }
+        })
+      }
+
+      // 使用 MutationObserver 监听 DOM 变化，当属性面板出现时立即隐藏
+      const observer = new MutationObserver(() => {
+        hidePropertiesPanel()
+        // 同时通过 API 关闭侧边栏
+        try {
+          if (api && api.updateScene) {
+            const currentAppState = api.getAppState?.() || {}
+            if (currentAppState.openSidebar) {
+              api.updateScene({ appState: { openSidebar: null } })
+            }
+          }
+        } catch (e) {
+          // 忽略错误
+        }
+      })
+
+      // 观察整个 Excalidraw 容器
+      const excalidrawContainer = document.querySelector('.excalidraw-host')
+      if (excalidrawContainer) {
+        observer.observe(excalidrawContainer, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'style'],
+          characterData: true
+        })
+      }
+
+      // 初始隐藏
+      hidePropertiesPanel()
+
+      // 更频繁地检查并隐藏（每50ms检查一次）
+      const interval = setInterval(() => {
+        hidePropertiesPanel()
+        // 同时通过 API 关闭
+        try {
+          if (api && api.updateScene) {
+            const currentAppState = api.getAppState?.() || {}
+            if (currentAppState.openSidebar) {
+              api.updateScene({ appState: { openSidebar: null } })
+            }
+          }
+        } catch (e) {
+          // 忽略错误
+        }
+      }, 50)
+
+      return () => {
+        observer.disconnect()
+        clearInterval(interval)
+      }
+    }, [api])
+
     // 外部主题 -> Excalidraw（关键：让“切换主题”对画板生效）
     useEffect(() => {
       if (!api) return
@@ -394,7 +524,7 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
           // ignore
         }
         
-        // 检查选中的元素是否是3D模型预览图
+        // 检查选中的元素是否是3D模型预览图或视频预览图
         const currentElements = api.getSceneElements() || []
         const currentAppState = api.getAppState()
         const currentSelectedIds = currentAppState?.selectedElementIds || {}
@@ -405,11 +535,10 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
         let is3DModel = false
         let modelUrl = ''
         let modelFormat: 'obj' | 'glb' = 'obj'
+        let linkData: any = null // 在外部作用域定义，供后续使用
         
-        // 尝试从多个字段解析3D模型信息
+        // 尝试从多个字段解析3D模型或视频信息
         if (selectedElement) {
-          let linkData: any = null
-          
           // 方式1: 从link字段解析（字符串格式）
           if (selectedElement.link && typeof selectedElement.link === 'string') {
             try {
@@ -445,7 +574,7 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
         }
         
         // 创建"查看3D模型"菜单项（仅当选中3D模型预览图时显示）
-        if (is3DModel && on3DModelClick) {
+        if (is3DModel && on3DModelClick && linkData) {
           const view3DItem = document.createElement('div')
           view3DItem.className = 'context-menu-item polystudio-context-menu-item'
           view3DItem.setAttribute('data-action', 'view-3d-model')
@@ -621,7 +750,7 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
           clearTimeout(processTimer)
         }
       }
-    }, [api, onImageToInput, on3DModelClick, combineImages])
+    }, [api, onImageToInput, on3DModelClick, onVideoClick, combineImages])
 
     useImperativeHandle(
       ref,
@@ -874,6 +1003,178 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
 
           // 注意：点击检测在onChange中处理，这里不需要额外的事件监听
         },
+        addVideo: async ({ videoUrl }) => {
+          if (!api) return
+
+          // 从视频中提取第一帧作为预览图
+          const previewImageUrl = await new Promise<string>((resolve, reject) => {
+            const video = document.createElement('video')
+            video.crossOrigin = 'anonymous'
+            video.preload = 'metadata'
+            
+            video.onloadedmetadata = () => {
+              // 设置视频到第一帧
+              video.currentTime = 0.1 // 稍微偏移，确保能获取到帧
+            }
+            
+            video.onseeked = () => {
+              // 创建canvas来捕获视频帧
+              const canvas = document.createElement('canvas')
+              canvas.width = video.videoWidth || 640
+              canvas.height = video.videoHeight || 360
+              const ctx = canvas.getContext('2d')
+              
+              if (!ctx) {
+                reject(new Error('无法创建 canvas context'))
+                return
+              }
+              
+              // 绘制视频帧到canvas
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              
+              // 在预览图上绘制播放图标（小一些，透明灰白色风格）
+              const centerX = canvas.width / 2
+              const centerY = canvas.height / 2
+              const iconSize = Math.min(canvas.width, canvas.height) * 0.12 // 图标大小为画布的12%（更小）
+              
+              // 绘制半透明圆形背景（灰白色，透明）
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.7)' // 半透明白色
+              ctx.beginPath()
+              ctx.arc(centerX, centerY, iconSize, 0, Math.PI * 2)
+              ctx.fill()
+              
+              // 绘制播放三角形（灰白色，更透明）
+              ctx.fillStyle = 'rgba(100, 100, 100, 0.9)' // 灰白色
+              ctx.beginPath()
+              const triangleSize = iconSize * 0.5
+              ctx.moveTo(centerX - triangleSize * 0.3, centerY - triangleSize * 0.5)
+              ctx.lineTo(centerX - triangleSize * 0.3, centerY + triangleSize * 0.5)
+              ctx.lineTo(centerX + triangleSize * 0.7, centerY)
+              ctx.closePath()
+              ctx.fill()
+              
+              // 转换为data URL
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+              resolve(dataUrl)
+            }
+            
+            video.onerror = () => {
+              reject(new Error('加载视频失败'))
+            }
+            
+            video.src = videoUrl
+          })
+
+          // 使用预览图作为图片添加到画布（类似3D模型预览）
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+
+          const { width, height } = await new Promise<{ width: number; height: number }>(
+            (resolve) => {
+              img.onload = () => resolve({ width: img.naturalWidth || 640, height: img.naturalHeight || 360 })
+              img.onerror = () => resolve({ width: 640, height: 360 })
+              img.src = previewImageUrl
+            }
+          )
+
+          const maxW = 300
+          const scale = width > 0 ? Math.min(1, maxW / width) : 1
+          const finalW = Math.max(32, Math.round(width * scale))
+          const finalH = Math.max(32, Math.round(height * scale))
+
+          const fileId = generateId('video_preview')
+          const created = Date.now()
+
+          const file: ExcalidrawFile = {
+            id: fileId,
+            dataURL: previewImageUrl,
+            mimeType: 'image/jpeg',
+            created,
+          }
+
+          const elements = api.getSceneElements() || []
+          const { x, y } = computeNextPosition(elements)
+
+          // 在预览图背后加一层白底板
+          const bgId = generateId('bg')
+          const bgElement = {
+            type: 'rectangle',
+            id: bgId,
+            x,
+            y,
+            width: finalW,
+            height: finalH,
+            angle: 0,
+            strokeColor: 'transparent',
+            backgroundColor: '#ffffff',
+            fillStyle: 'solid',
+            strokeStyle: 'solid',
+            strokeWidth: 1,
+            roughness: 0,
+            opacity: 100,
+            groupIds: [],
+            seed: randomInt(),
+            version: 1,
+            versionNonce: randomInt(),
+            isDeleted: false,
+            boundElements: null,
+            roundness: null,
+            frameId: null,
+            updated: created,
+            link: null,
+            locked: false,
+          }
+
+          // 创建图片元素，并在link字段中存储视频信息
+          const videoInfo = JSON.stringify({ videoUrl, type: 'video' })
+          const newElement: any = {
+            type: 'image',
+            id: fileId,
+            x,
+            y,
+            width: finalW,
+            height: finalH,
+            angle: 0,
+            fileId,
+            strokeColor: '#ff6600', // 橙色边框标识这是视频预览
+            fillStyle: 'solid',
+            strokeStyle: 'solid',
+            boundElements: null,
+            roundness: null,
+            frameId: null,
+            backgroundColor: 'transparent',
+            strokeWidth: 3, // 更粗的边框，更明显地区分视频
+            roughness: 0,
+            opacity: 100,
+            groupIds: [],
+            seed: randomInt(),
+            version: 1,
+            versionNonce: randomInt(),
+            isDeleted: false,
+            index: null,
+            updated: created,
+            link: videoInfo, // 存储视频信息
+            customData: videoInfo, // 备用方式
+            locked: false,
+            status: 'saved',
+            scale: [1, 1],
+            crop: null,
+          }
+
+          api.addFiles([file])
+          const nextElements = [...elements, bgElement, newElement]
+          api.updateScene({ elements: nextElements })
+
+          // 保存
+          const nextFiles = { ...(api.getFiles?.() || {}), [fileId]: file }
+          const nextAppState = api.getAppState ? api.getAppState() : {}
+          flushSave({
+            elements: nextElements,
+            appState: nextAppState,
+            files: nextFiles,
+          })
+          lastSaveTimeRef.current = Date.now()
+        },
         clearSelection: () => {
           if (api && api.updateScene) {
             api.updateScene({ appState: { selectedElementIds: {} } })
@@ -902,9 +1203,55 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
               onThemeChange?.(nextTheme)
             }
             
-            // 检测双击3D模型预览图（通过检测快速连续选中同一元素）
+            // 如果选中的是图片/视频元素，立即关闭属性面板（侧边栏）
+            if (appState?.selectedElementIds && Object.keys(appState.selectedElementIds).length > 0 && api) {
+              const selectedIds = Object.keys(appState.selectedElementIds)
+              const selectedElements = elements.filter((el: any) => 
+                el && !el.isDeleted && selectedIds.includes(el.id)
+              )
+              
+              // 检查是否所有选中的元素都是图片/视频类型
+              const allMedia = selectedElements.length > 0 && selectedElements.every((el: any) => 
+                el.type === 'image' || el.type === 'embeddable' || el.type === 'video'
+              )
+              
+              // 如果都是媒体元素，立即关闭侧边栏
+              if (allMedia) {
+                try {
+                  // 立即关闭，不等待
+                  if (api && api.updateScene) {
+                    api.updateScene({ appState: { openSidebar: null } })
+                  }
+                  // 同时通过 DOM 操作立即隐藏包含"边角"、"透明度"等文本的元素
+                  requestAnimationFrame(() => {
+                    const allElements = document.querySelectorAll('.excalidraw-host *')
+                    allElements.forEach((el: Element) => {
+                      const htmlEl = el as HTMLElement
+                      const text: string = htmlEl.textContent || ''
+                      if (text.indexOf('边角') >= 0 || text.indexOf('透明度') >= 0 || text.indexOf('图层') >= 0 || text.indexOf('操作') >= 0) {
+                        const parent = htmlEl.closest('[class*="Island"]') || htmlEl.closest('[class*="sidebar"]') || htmlEl.closest('[class*="Sidebar"]')
+                        if (parent) {
+                          const parentEl = parent as HTMLElement
+                          parentEl.style.display = 'none'
+                          parentEl.style.visibility = 'hidden'
+                          parentEl.style.opacity = '0'
+                          parentEl.style.width = '0'
+                          parentEl.style.height = '0'
+                          parentEl.style.overflow = 'hidden'
+                          parentEl.style.pointerEvents = 'none'
+                        }
+                      }
+                    })
+                  })
+                } catch (e) {
+                  // 忽略错误
+                }
+              }
+            }
+            
+            // 检测双击3D模型预览图和视频预览图（通过检测快速连续选中同一元素）
             // 如果弹框刚关闭或还在初始加载，忽略选中事件（防止自动触发）
-            if (on3DModelClick && appState?.selectedElementIds && !modalJustClosedRef.current && !isInitialLoadRef.current) {
+            if ((on3DModelClick || onVideoClick) && appState?.selectedElementIds && !modalJustClosedRef.current && !isInitialLoadRef.current) {
               const selectedIds = Object.keys(appState.selectedElementIds)
               if (selectedIds.length === 1) {
                 const selectedId = selectedIds[0]
@@ -967,7 +1314,29 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
                         now - lastClickTimeRef.current < 400) {
                       // 双击触发
                       console.log('双击3D模型预览图，打开弹框', linkData)
-                      on3DModelClick(linkData.modelUrl, linkData.format, linkData.mtlUrl, linkData.textureUrl)
+                      on3DModelClick?.(linkData.modelUrl, linkData.format, linkData.mtlUrl, linkData.textureUrl)
+                      lastClickedElementRef.current = null // 重置，避免重复触发
+                      lastClickTimeRef.current = 0
+                    } else {
+                      // 记录单击
+                      lastClickTimeRef.current = now
+                      lastClickedElementRef.current = selectedId
+                    }
+                  } else if (linkData && linkData.type === 'video' && linkData.videoUrl && onVideoClick) {
+                    // 检测视频预览图点击
+                    if (modalJustClosedRef.current) {
+                      console.log('弹框刚关闭，忽略选中事件')
+                      lastClickedElementRef.current = null
+                      return
+                    }
+                    
+                    const now = Date.now()
+                    // 检测双击：如果400ms内点击了同一个元素，认为是双击
+                    if (lastClickedElementRef.current === selectedId && 
+                        now - lastClickTimeRef.current < 400) {
+                      // 双击触发
+                      console.log('双击视频预览图，打开弹框', linkData)
+                      onVideoClick(linkData.videoUrl)
                       lastClickedElementRef.current = null // 重置，避免重复触发
                       lastClickTimeRef.current = 0
                     } else {

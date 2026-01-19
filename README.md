@@ -7,6 +7,11 @@
 ### 功能概览
 
 - **对话式生成/编辑图片**：支持 `generate_volcano_image` / `edit_volcano_image`（火山引擎图片生成）
+- **视频生成**：支持 `generate_volcano_video`（火山引擎视频生成，使用 Seedance 1.5 Pro）
+  - **文生视频**：基于文本描述生成视频
+  - **图生视频-首帧**：基于首帧图片生成视频
+  - **首尾帧**：基于首帧和尾帧图片生成过渡视频
+  - 支持图片 URL 和本地路径输入（本地路径如 `/storage/images/xxx.jpg` 会自动转换为 base64）
 - **3D 模型生成**：支持基于文本或图片生成 3D 模型（OBJ/GLB 格式），使用腾讯云混元生3D API
   - **文生3D**：通过文本描述生成 3D 模型
   - **图生3D**：基于图片生成 3D 模型
@@ -18,6 +23,7 @@
 - **全局深色主题**：前端与画板默认深色
 - **本地持久化**：
   - 图片保存到 `backend/storage/images/`
+  - 视频保存到 `backend/storage/videos/`
   - 3D 模型保存到 `backend/storage/models/`（包含 OBJ、MTL、纹理文件）
   - 项目与聊天记录保存到 `backend/storage/chat_history.json`
 
@@ -27,7 +33,7 @@
 PolyStudio/
 ├── backend/                 # FastAPI 后端
 │   ├── app/                 # 业务代码
-│   │   ├── tools/           # 工具模块（图片生成、3D模型生成）
+│   │   ├── tools/           # 工具模块（图片生成、视频生成、3D模型生成）
 │   │   ├── services/        # 服务模块（Agent服务、流式处理）
 │   │   └── utils/           # 工具函数（日志配置等）
 │   ├── requirements.txt     # Python 依赖（以此为准）
@@ -35,6 +41,7 @@ PolyStudio/
 │   ├── scripts/             # 维护脚本（如存量图片归一化）
 │   ├── storage/              # 运行数据
 │   │   ├── images/          # 生成的图片
+│   │   ├── videos/          # 生成的视频
 │   │   ├── models/          # 生成的3D模型（OBJ、MTL、纹理文件）
 │   │   └── chat_history.json # 聊天历史记录
 │   └── logs/                # 日志文件（按日期和大小自动轮转）
@@ -81,7 +88,7 @@ cp env.example .env
 
 **必需的环境变量：**
 - `OPENAI_API_KEY`：LLM API 密钥（用于对话模型）
-- `VOLCANO_API_KEY`：火山引擎 API 密钥（用于图片生成）
+- `VOLCANO_API_KEY`：火山引擎 API 密钥（用于图片生成和视频生成）
 - `TENCENT_AI3D_API_KEY`：腾讯云混元生3D API 密钥（用于 3D 模型生成）
 
 **可选的环境变量：**
@@ -139,6 +146,8 @@ npm run dev
 data: {"type":"delta","content":"..."}
 data: {"type":"tool_call","id":"...","name":"generate_volcano_image","arguments":{...}}
 data: {"type":"tool_result","tool_call_id":"...","content":"{...image_url...}"}
+data: {"type":"tool_call","id":"...","name":"generate_volcano_video","arguments":{...}}
+data: {"type":"tool_result","tool_call_id":"...","content":"{...video_url...}"}
 data: {"type":"tool_call","id":"...","name":"generate_3d_model","arguments":{...}}
 data: {"type":"tool_result","tool_call_id":"...","content":"{...model_path...}"}
 data: [DONE]
@@ -147,6 +156,15 @@ data: [DONE]
 **支持的工具：**
 - `generate_volcano_image`：生成图片（火山引擎）
 - `edit_volcano_image`：编辑图片（火山引擎）
+- `generate_volcano_video`：生成视频（火山引擎 Seedance）
+  - 参数：
+    - `prompt`（文本描述，必需）
+    - `mode`（生成模式，可选）：`"text"`（文生视频，默认）、`"image"`（图生视频-首帧）、`"start_end"`（首尾帧）
+    - `duration`（视频时长，秒，可选，4-12秒，默认5秒）
+    - `ratio`（视频宽高比，可选，默认 "16:9"）
+    - `image_url`（图片URL或本地路径，图生视频-首帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
+    - `start_image_url`（首帧图片URL或本地路径，首尾帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
+    - `end_image_url`（尾帧图片URL或本地路径，首尾帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
 - `generate_3d_model`：生成 3D 模型（腾讯云混元生3D）
   - 参数：`prompt`（文本描述，可选）、`image_url`（图片URL，可选）、`format`（输出格式：obj/glb）
 
@@ -154,10 +172,15 @@ data: [DONE]
 
 - **LLM（对话模型）**：通过 `OPENAI_BASE_URL` 指向 OpenAI 兼容接口（默认 SiliconFlow），模型名由 `MODEL_NAME` 指定
 - **图像生成/编辑**：后端 `generate_volcano_image` / `edit_volcano_image` 工具调用火山引擎 Seedream API（并将结果下载保存到本地 `/storage/images`）
+- **视频生成**：后端 `generate_volcano_video` 工具调用火山引擎 Seedance API
+  - 使用模型：`doubao-seedance-1-5-pro`（Seedance 1.5 Pro，支持文生视频、图生视频-首帧、首尾帧三种模式）
+  - 生成的视频保存到本地 `/storage/videos`
+  - 支持三种生成模式：文生视频、图生视频-首帧、首尾帧
+  - 支持图片 URL 和本地路径输入（本地路径如 `/storage/images/xxx.jpg` 会自动转换为 base64）
 - **3D 模型生成**：后端 `generate_3d_model` 工具调用腾讯云混元生3D API，支持文生3D、图生3D和混合模式，生成的模型保存到本地 `/storage/models/`
 - **颜色一致性**：后端保存图片时会尝试做 sRGB 归一化（依赖 `Pillow`，已在 `requirements.txt` 固定）
 - **日志系统**：统一的日志配置，支持输出到控制台和文件（`backend/logs/`），可按日期和大小自动轮转
-- **Mock 模式**：支持启用 Mock 模式用于调试，返回固定的图片和 3D 模型数据，无需调用真实 API
+- **Mock 模式**：支持启用 Mock 模式用于调试，返回固定的图片、视频和 3D 模型数据，无需调用真实 API
 
 ### 常见问题（简版）
 

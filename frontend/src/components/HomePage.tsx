@@ -297,6 +297,15 @@ export default function HomePage({
                 placeholder="例如：生成一套 12 生肖毛绒吉祥物，每个生肖一张图，统一风格…"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    // 回车键（非 Shift+Enter）触发创建项目
+                    e.preventDefault()
+                    if (!creating && (prompt.trim() || uploadedImages.length > 0)) {
+                      createProjectAndEnter(prompt, uploadedImages)
+                    }
+                  }
+                }}
                 onPaste={(e) => {
                   try {
                     const items = e.clipboardData?.items
@@ -342,13 +351,13 @@ export default function HomePage({
               />
             </div>
             <div className="home__promptFooter">
-              <div className="home__hint">回车不会提交，点击右侧按钮创建项目并进入画板</div>
+              <div className="home__hint">按回车键或点击右侧按钮创建项目并进入画板</div>
               <button
                 className="home__btn home__btn--primary"
                 onClick={() => createProjectAndEnter(prompt, uploadedImages)}
                 disabled={creating || (!prompt.trim() && uploadedImages.length === 0)}
               >
-                进入画板
+                开始
                 <ArrowRight size={16} />
               </button>
             </div>

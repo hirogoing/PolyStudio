@@ -22,6 +22,7 @@ interface ToolCall {
   status: 'executing' | 'done'
   result?: any
   imageUrl?: string
+  videoUrl?: string
   modelUrl?: string
   modelFormat?: 'obj' | 'glb'
 }
@@ -495,6 +496,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                   updateToolStep(event.tool_call_id, (tc) => {
                            let updatedArgs = tc.arguments
                     let imageUrl: string | undefined = tc.imageUrl
+                    let videoUrl: string | undefined = tc.videoUrl
                     let modelUrl: string | undefined = tc.modelUrl
                     let modelFormat: 'obj' | 'glb' | undefined = tc.modelFormat
                            try {
@@ -504,6 +506,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                              }
                       if (resultObj && typeof resultObj.image_url === 'string') {
                         imageUrl = resultObj.image_url
+                             }
+                      // 处理视频结果
+                      if (resultObj && typeof resultObj.video_url === 'string') {
+                        videoUrl = resultObj.video_url
                              }
                       // 处理3D模型结果
                       if (resultObj && typeof resultObj.model_url === 'string') {
@@ -519,6 +525,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                              result: event.content,
                       arguments: updatedArgs,
                       imageUrl,
+                      videoUrl,
                       modelUrl,
                       modelFormat,
                     }
@@ -533,6 +540,14 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                         
                         // 新画布：将图片插入 Excalidraw（插入后会触发 onChange，从而自动保存到后端）
                         await excalidrawRef.current?.addImage({ url: imgUrl })
+                        scrollToBottom('auto')
+                      }
+                      // 处理视频结果
+                      if (typeof result.video_url === 'string' && result.video_url) {
+                        const videoUrl: string = result.video_url
+                        
+                        // 将视频添加到画布（提取第一帧作为预览图）
+                        await excalidrawRef.current?.addVideo({ videoUrl })
                         scrollToBottom('auto')
                       }
                       // 处理3D模型结果
@@ -808,6 +823,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       'edit_image': '编辑图像',
       'generate_volcano_image': '生成图像',
       'edit_volcano_image': '编辑图像',
+      'generate_volcano_video': '生成视频',
       'generate_3d_model': '生成3D模型',
     }
     return map[name] || name
@@ -816,6 +832,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
   // 3D模型弹框状态
   const [show3DModal, setShow3DModal] = useState(false)
   const [current3DModel, setCurrent3DModel] = useState<{ url: string; format: 'obj' | 'glb'; mtlUrl?: string; textureUrl?: string } | null>(null)
+  
+  // 视频播放弹框状态
+  const [showVideoModal, setShowVideoModal] = useState(false)
+  const [currentVideo, setCurrentVideo] = useState<string | null>(null)
 
   // 下载3D模型文件
   const download3DModel = async (model: { url: string; format: 'obj' | 'glb'; mtlUrl?: string; textureUrl?: string }) => {
@@ -915,7 +935,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
               <div className="canvas-empty">
                 <ImageIcon size={64} strokeWidth={1.5} className="empty-icon" />
                 <p className="empty-title">AI 画板</p>
-                <p className="canvas-hint">生成的图片和3D模型将自动落到画布上（支持缩放、框选、对齐）</p>
+                <p className="canvas-hint">生成的图片、视频和3D模型将自动落到画布上（支持缩放、框选、对齐）<br/>提示：双击视频预览图或右键选择"播放视频"可观看视频</p>
               </div>
             ) : (
               <div />
@@ -1010,6 +1030,17 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                       setShow3DModal(true)
                       console.log('弹框状态已更新', { show3DModal: true, current3DModel: { url: modelUrl, format, mtlUrl, textureUrl } })
                     }}
+                    onVideoClick={(videoUrl) => {
+                      // 点击视频预览图时，打开弹框
+                      // 如果弹框已经打开，不重复打开
+                      if (showVideoModal) {
+                        console.log('视频弹框已打开，忽略重复调用')
+                        return
+                      }
+                      console.log('onVideoClick 被调用', { videoUrl })
+                      setCurrentVideo(videoUrl)
+                      setShowVideoModal(true)
+                    }}
                     onModalClose={() => {
                       // 通知Excalidraw弹框已关闭
                       excalidrawRef.current?.clearSelection()
@@ -1065,6 +1096,49 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                     width={800}
                     height={600}
                   />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 视频播放弹框 */}
+          {showVideoModal && currentVideo && (
+            <div className="modal-overlay" onClick={() => {
+              console.log('点击遮罩层，关闭视频弹框')
+              setShowVideoModal(false)
+              setCurrentVideo(null)
+              // 清除选中状态，防止立即重新打开
+              excalidrawRef.current?.clearSelection()
+            }}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <button 
+                  className="modal-close-btn"
+                  onClick={() => {
+                    console.log('点击关闭按钮，关闭视频弹框')
+                    setShowVideoModal(false)
+                    setCurrentVideo(null)
+                    // 清除选中状态，防止立即重新打开
+                    excalidrawRef.current?.clearSelection()
+                  }}
+                  title="关闭"
+                >
+                  <X size={24} />
+                </button>
+                <div className="modal-video-player" style={{ padding: '20px' }}>
+                  <video 
+                    src={currentVideo} 
+                    controls 
+                    autoPlay
+                    style={{ 
+                      width: '100%', 
+                      maxWidth: '800px', 
+                      height: 'auto',
+                      borderRadius: '8px',
+                      backgroundColor: '#000'
+                    }}
+                  >
+                    您的浏览器不支持视频播放
+                  </video>
                 </div>
               </div>
             </div>
@@ -1196,6 +1270,25 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                             .map(tc => (
                               <div key={`img-${tc.id}`} className="message-image">
                                 <img src={tc.imageUrl} alt="Generated" />
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* 视频显示 */}
+                      {message.toolCalls?.some(tc => tc.videoUrl) && (
+                        <div className="message-videos">
+                          {message.toolCalls
+                            .filter(tc => tc.videoUrl)
+                            .map(tc => (
+                              <div key={`video-${tc.id}`} className="message-video">
+                                <video 
+                                  src={tc.videoUrl} 
+                                  controls 
+                                  style={{ maxWidth: '100%', borderRadius: '8px' }}
+                                >
+                                  您的浏览器不支持视频播放
+                                </video>
                               </div>
                             ))}
                         </div>

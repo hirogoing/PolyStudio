@@ -27,6 +27,8 @@ class StreamProcessor:
         self.current_tool_calls = []
         self.text_buffer = "" # 用于累积日志打印的文本缓冲区
         self.tool_call_args: Dict[str, Dict[str, Any]] = {}  # 用于累积工具调用参数
+        self.tool_call_names: Dict[str, str] = {}  # 用于存储工具调用名称（key: tool_call_id, value: tool_name）
+        self.tool_call_args_buffer: Dict[str, str] = {}  # 用于累积参数JSON字符串（key: tool_call_id, value: 累积的JSON字符串）
         # LangGraph 默认 recursion_limit=25，生成多张图会很容易超过这个步数导致报错
         self.recursion_limit = int(os.getenv("RECURSION_LIMIT", "200"))
 
@@ -174,9 +176,11 @@ class StreamProcessor:
             if isinstance(message_chunk, ToolMessage):
                 logger.info(f"🔧 工具调用结果: tool_call_id={message_chunk.tool_call_id}")
                 logger.info(f"   内容: {str(message_chunk.content)[:200]}")
-                # 清理已完成的工具调用参数
+                # 清理已完成的工具调用参数和名称
                 if message_chunk.tool_call_id in self.tool_call_args:
                     del self.tool_call_args[message_chunk.tool_call_id]
+                if message_chunk.tool_call_id in self.tool_call_names:
+                    del self.tool_call_names[message_chunk.tool_call_id]
                 event = {
                     "type": "tool_result",
                     "tool_call_id": message_chunk.tool_call_id,
@@ -231,7 +235,7 @@ class StreamProcessor:
                             tool_name = tool_call.get("name")
                             # 尝试多种可能的参数字段名
                             tool_args = tool_call.get("args") or tool_call.get("arguments") or {}
-                            logger.debug(f"📋 字典格式工具调用: id={tool_call_id}, name={tool_name}, args类型={type(tool_args)}")
+                            logger.debug(f"📋 字典格式工具调用: id={tool_call_id}, name={tool_name}, args={tool_args}, args类型={type(tool_args)}")
                         else:
                             # ToolCall 对象
                             tool_call_id = getattr(tool_call, "id", None)
@@ -243,18 +247,20 @@ class StreamProcessor:
                                 if hasattr(tool_call, "dict"):
                                     tool_dict = tool_call.dict()
                                     tool_args = tool_dict.get("args") or tool_dict.get("arguments") or {}
+                                    logger.debug(f"📋 通过dict()获取参数: {tool_args}")
                                 else:
                                     tool_args = {}
-                            logger.debug(f"📋 对象格式工具调用: id={tool_call_id}, name={tool_name}, args类型={type(tool_args)}, 对象类型={type(tool_call)}")
-                            # 打印对象的所有属性用于调试
-                            if hasattr(tool_call, "__dict__"):
-                                logger.debug(f"   对象属性: {list(tool_call.__dict__.keys())}")
+                            logger.debug(f"📋 对象格式工具调用: id={tool_call_id}, name={tool_name}, args={tool_args}, args类型={type(tool_args)}, 对象类型={type(tool_call)}")
                         
                         # 关键修复：严格检查 name 是否存在且非空
                         # 在流式输出中，某些 chunk 可能包含 name 为空或 None 的 tool_call
                         if not tool_name or not tool_call_id:
                             logger.debug(f"⚠️  跳过无效的工具调用 (name或id为空): name={tool_name}, id={tool_call_id}")
                             continue
+                        
+                        # 存储工具调用名称（用于后续在tool_call_chunks中获取）
+                        if tool_name:
+                            self.tool_call_names[tool_call_id] = tool_name
 
                         # 处理参数：如果是字符串（JSON格式），需要解析
                         if isinstance(tool_args, str):
@@ -275,28 +281,31 @@ class StreamProcessor:
                         # 合并参数（后续chunk可能包含更多参数）
                         if tool_args and isinstance(tool_args, dict):
                             self.tool_call_args[tool_call_id].update(tool_args)
+                            logger.debug(f"✅ 从tool_calls累积参数: id={tool_call_id}, 新参数={tool_args}, 累积后={self.tool_call_args[tool_call_id]}")
                         
                         # 使用累积的参数
                         final_args = self.tool_call_args[tool_call_id]
 
-                        logger.info(f"🛠️  工具调用: name={tool_name}, id={tool_call_id}")
-                        logger.info(f"   参数: {final_args}")
-                        
-                        event = {
-                            "type": "tool_call",
-                            "id": tool_call_id,
-                            "name": tool_name,
-                            "arguments": final_args
-                        }
-                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        # 只有当参数非空时才输出工具调用事件
+                        # 避免在流式传输中发送多次相同的工具调用（参数空 -> 参数完整）
+                        # 参数会在 tool_call_chunks 处理完成后统一发送
+                        if final_args:
+                            logger.info(f"🛠️  工具调用: name={tool_name}, id={tool_call_id}")
+                            logger.info(f"   参数: {final_args}")
+                            
+                            event = {
+                                "type": "tool_call",
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "arguments": final_args
+                            }
+                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        else:
+                            logger.debug(f"⏳ 工具调用参数为空，等待后续chunk补充: name={tool_name}, id={tool_call_id}")
                 
                 # 处理工具调用参数流（如果存在）
                 if hasattr(message_chunk, "tool_call_chunks") and message_chunk.tool_call_chunks:
                     for tool_call_chunk in message_chunk.tool_call_chunks:
-                        logger.debug(f"📝 工具调用参数流: {tool_call_chunk}")
-                        # 将参数流发送给前端
-                        # tool_call_chunk 通常包含: {index: 0, id: '...', args: '...'}
-                        
                         # 处理可能的字典或对象
                         chunk_dict = tool_call_chunk
                         if not isinstance(chunk_dict, dict):
@@ -306,19 +315,90 @@ class StreamProcessor:
                             else:
                                 chunk_dict = {"args": str(tool_call_chunk)} # fallback
 
-                        # 提取 args
+                        # 提取信息
                         args_chunk = chunk_dict.get("args")
                         index = chunk_dict.get("index", 0)
                         tc_id = chunk_dict.get("id")
+                        tool_name_from_chunk = chunk_dict.get("name")
                         
-                        if args_chunk:
-                            event = {
-                                "type": "tool_call_chunk",
-                                "index": index,
-                                "id": tc_id,
-                                "args": args_chunk
-                            }
-                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        # 如果 chunk 中没有 id，尝试从 tool_call_names 中查找（通过 index）
+                        # 或者使用最近创建的 tool_call_id
+                        if not tc_id:
+                            # 尝试从已存储的 tool_call_names 中获取（如果有多个，使用最后一个）
+                            if self.tool_call_names:
+                                # 使用最近添加的 tool_call_id（假设 index=0 对应最新的）
+                                tc_id = list(self.tool_call_names.keys())[-1] if self.tool_call_names else None
+                                logger.debug(f"⚠️  chunk中没有id，使用最近的tool_call_id: {tc_id}")
+                        
+                        # 累积参数JSON字符串片段
+                        if args_chunk and tc_id:
+                            # 初始化缓冲区
+                            if tc_id not in self.tool_call_args_buffer:
+                                self.tool_call_args_buffer[tc_id] = ""
+                            
+                            # 累积字符串片段
+                            if isinstance(args_chunk, str):
+                                self.tool_call_args_buffer[tc_id] += args_chunk
+                                
+                                # 尝试解析累积的JSON字符串
+                                try:
+                                    parsed_args = json.loads(self.tool_call_args_buffer[tc_id])
+                                    if isinstance(parsed_args, dict):
+                                        # 解析成功，更新参数
+                                        if tc_id not in self.tool_call_args:
+                                            self.tool_call_args[tc_id] = {}
+                                        self.tool_call_args[tc_id].update(parsed_args)
+                                        
+                                        # 查找工具名称
+                                        tool_name_from_storage = self.tool_call_names.get(tc_id)
+                                        tool_name = tool_name_from_storage or tool_name_from_chunk
+                                        
+                                        if tool_name:
+                                            logger.info(f"🛠️  工具调用（参数更新）: name={tool_name}, id={tc_id}")
+                                            logger.info(f"   参数: {self.tool_call_args[tc_id]}")
+                                            
+                                            # 发送更新后的工具调用事件（包含完整参数）
+                                            event = {
+                                                "type": "tool_call",
+                                                "id": tc_id,
+                                                "name": tool_name,
+                                                "arguments": self.tool_call_args[tc_id]
+                                            }
+                                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                                except json.JSONDecodeError:
+                                    # JSON 还不完整，继续累积
+                                    pass
+                            elif isinstance(args_chunk, dict):
+                                # 如果已经是字典，直接更新
+                                if tc_id not in self.tool_call_args:
+                                    self.tool_call_args[tc_id] = {}
+                                self.tool_call_args[tc_id].update(args_chunk)
+                                
+                                tool_name_from_storage = self.tool_call_names.get(tc_id)
+                                tool_name = tool_name_from_storage or tool_name_from_chunk
+                                
+                                if tool_name:
+                                    logger.info(f"🛠️  工具调用（参数更新）: name={tool_name}, id={tc_id}")
+                                    logger.info(f"   参数: {self.tool_call_args[tc_id]}")
+                                    
+                                    event = {
+                                        "type": "tool_call",
+                                        "id": tc_id,
+                                        "name": tool_name,
+                                        "arguments": self.tool_call_args[tc_id]
+                                    }
+                                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        
+                        # 发送参数流事件给前端（用于实时显示参数输入，可选）
+                        # 注释掉以减少日志噪音
+                        # if args_chunk:
+                        #     event = {
+                        #         "type": "tool_call_chunk",
+                        #         "index": index,
+                        #         "id": tc_id,
+                        #         "args": args_chunk
+                        #     }
+                        #     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"❌ 处理消息chunk时出错: {str(e)}")

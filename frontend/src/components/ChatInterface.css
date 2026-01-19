@@ -179,6 +179,26 @@
   display: none !important;
 }
 
+/* 隐藏 Excalidraw 左侧属性面板（边角、透明度等） */
+.excalidraw-host .sidebar,
+.excalidraw-host .Island[class*="sidebar"],
+.excalidraw-host [class*="sidebar"],
+.excalidraw-host .element-properties-panel,
+.excalidraw-host [data-testid="element-properties-panel"],
+.excalidraw-host .Stack[class*="sidebar"],
+.excalidraw-host div[class*="Sidebar"],
+.excalidraw-host .element-panel,
+.excalidraw-host [class*="element-panel"],
+.excalidraw-host [class*="PropertiesPanel"],
+.excalidraw-host [class*="properties-panel"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
 /* ----------------------------------- */
 /* Excalidraw 右键菜单：只美化“容器”，避免把内部布局弄乱 */
 /* ----------------------------------- */
@@ -1018,8 +1038,33 @@
   width: 100%;
   height: auto;
   max-height: 400px;
-  /* 聊天侧不要裁切，否则同一张图露出的区域不同会让“金色观感”差得更明显 */
+  /* 聊天侧不要裁切，否则同一张图露出的区域不同会让"金色观感"差得更明显 */
   object-fit: contain;
+}
+
+/* 视频样式 */
+.message-videos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.message-video {
+  margin-top: 0.55rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  width: 100%;
+}
+
+.message-video video {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  max-height: 400px;
+  border-radius: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.1);
 }
 
 /* 输入区域 */
