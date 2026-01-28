@@ -161,7 +161,10 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
     const lastClickTimeRef = useRef<number>(0) // 记录上次点击时间（用于双击检测）
     const lastClickedElementRef = useRef<string | null>(null) // 记录上次点击的元素ID
     const modalJustClosedRef = useRef<boolean>(false) // 标记弹框是否刚关闭（防止立即重新打开）
+    const videoClickTimeoutRef = useRef<NodeJS.Timeout | null>(null) // 视频单击延迟定时器
     const isInitialLoadRef = useRef<boolean>(true) // 标记是否是初始加载（防止页面加载时自动触发）
+    const videoDoubleClickProcessedRef = useRef<string | null>(null) // 标记已经处理过的双击元素ID（防止重复触发）
+    const lastSelectedElementIdRef = useRef<string | null>(null) // 记录上次选中的元素ID（用于检测选中状态变化）
 
     const flushSave = useCallback(
       (data: ExcalidrawCanvasData) => {
@@ -283,12 +286,26 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
     // 标记初始加载完成（延迟1秒，确保Excalidraw完成初始渲染和数据恢复）
     useEffect(() => {
       const timer = setTimeout(() => {
+        // 清除 Excalidraw 的选中状态，避免恢复选中状态时触发双击检测
+        if (api && api.updateScene) {
+          api.updateScene({ appState: { selectedElementIds: {} } })
+        }
+        
+        // 清除所有点击记录，防止初始加载时的自动选中被误判为双击
+        lastClickTimeRef.current = 0
+        lastClickedElementRef.current = null
+        videoDoubleClickProcessedRef.current = null
+        if (videoClickTimeoutRef.current) {
+          clearTimeout(videoClickTimeoutRef.current)
+          videoClickTimeoutRef.current = null
+        }
+        
+        // 标记初始加载完成
         isInitialLoadRef.current = false
-        console.log('✅ 初始加载完成，允许3D模型点击检测')
       }, 1000) // 1秒后允许点击检测
       
       return () => clearTimeout(timer)
-    }, [])
+    }, [api])
 
     // 监听并隐藏属性面板（当选中图片/视频时）
     useEffect(() => {
@@ -1190,6 +1207,114 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
       [api, flushSave]
     )
 
+    // 添加原生双击事件监听器，用于检测视频和3D模型的双击
+    useEffect(() => {
+      const handleDblClick = (e: MouseEvent) => {
+        console.log('🖱️ [双击事件] 检测到双击', {
+          hasApi: !!api,
+          isInitialLoad: isInitialLoadRef.current,
+          modalJustClosed: modalJustClosedRef.current,
+          target: e.target
+        })
+        
+        if (!api || isInitialLoadRef.current || modalJustClosedRef.current) {
+          console.log('⏸️ [双击事件] 忽略 - 条件不满足')
+          return
+        }
+        
+        // 获取当前选中的元素
+        const selectedIds = api.getAppState?.()?.selectedElementIds
+        console.log('🔍 [双击事件] 当前选中元素:', selectedIds)
+        
+        if (!selectedIds || Object.keys(selectedIds).length !== 1) {
+          console.log('⏸️ [双击事件] 忽略 - 没有选中元素或选中多个元素')
+          return
+        }
+        
+        const selectedId = Object.keys(selectedIds)[0]
+        const elements = api.getSceneElements?.() || []
+        const selectedElement = elements.find((el: any) => el?.id === selectedId)
+        
+        console.log('📦 [双击事件] 找到选中元素:', {
+          id: selectedId,
+          type: selectedElement?.type,
+          hasLink: !!selectedElement?.link
+        })
+        
+        if (!selectedElement || selectedElement.type !== 'image') {
+          console.log('⏸️ [双击事件] 忽略 - 不是图片元素')
+          return
+        }
+        
+        // 解析 link 数据，需要处理HTML转义
+        let linkData: any = null
+        if (selectedElement.link && typeof selectedElement.link === 'string') {
+          try {
+            // 处理HTML转义（&quot; -> "）
+            const unescapedLink = selectedElement.link
+              .replace(/&quot;/g, '"')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+            linkData = JSON.parse(unescapedLink)
+          } catch (e) {
+            // 忽略
+          }
+        } else if (selectedElement.link && typeof selectedElement.link === 'object') {
+          linkData = selectedElement.link
+        } else if ((selectedElement as any).customData) {
+          try {
+            const customData = (selectedElement as any).customData
+            if (typeof customData === 'string') {
+              // 处理HTML转义
+              const unescapedData = customData
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+              linkData = JSON.parse(unescapedData)
+            } else {
+              linkData = customData
+            }
+          } catch (e) {
+            // 忽略
+          }
+        }
+        
+        console.log('📦 [双击事件] 解析link数据:', linkData)
+        
+        // 处理视频双击
+        if (linkData && linkData.type === 'video' && linkData.videoUrl && onVideoClick) {
+          console.log('✅ [双击事件] 触发视频播放')
+          e.stopPropagation()
+          e.preventDefault()
+          onVideoClick(linkData.videoUrl)
+        }
+        // 处理3D模型双击
+        else if (linkData && linkData.type === '3d_model' && linkData.modelUrl && linkData.format && on3DModelClick) {
+          console.log('✅ [双击事件] 触发3D模型打开')
+          e.stopPropagation()
+          e.preventDefault()
+          on3DModelClick(linkData.modelUrl, linkData.format, linkData.mtlUrl, linkData.textureUrl)
+        } else {
+          console.log('⏸️ [双击事件] 忽略 - 不是视频或3D模型元素')
+        }
+      }
+      
+      // 在 Excalidraw 容器上添加双击监听器
+      const container = document.querySelector(`[data-canvas-id="${canvasId}"]`)
+      console.log('🔧 [双击事件] 设置监听器:', {
+        canvasId,
+        hasContainer: !!container,
+        containerSelector: `[data-canvas-id="${canvasId}"]`
+      })
+      
+      if (container) {
+        container.addEventListener('dblclick', handleDblClick)
+        return () => container.removeEventListener('dblclick', handleDblClick)
+      }
+    }, [api, canvasId, onVideoClick, on3DModelClick])
+
     return (
       <div className="excalidraw-host" data-canvas-id={canvasId}>
         <Excalidraw
@@ -1249,110 +1374,12 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
               }
             }
             
-            // 检测双击3D模型预览图和视频预览图（通过检测快速连续选中同一元素）
-            // 如果弹框刚关闭或还在初始加载，忽略选中事件（防止自动触发）
-            if ((on3DModelClick || onVideoClick) && appState?.selectedElementIds && !modalJustClosedRef.current && !isInitialLoadRef.current) {
-              const selectedIds = Object.keys(appState.selectedElementIds)
-              if (selectedIds.length === 1) {
-                const selectedId = selectedIds[0]
-                const selectedElement = elements.find((el: any) => el.id === selectedId)
-                
-                if (selectedElement && selectedElement.type === 'image') {
-                  // 尝试从多个字段解析3D模型信息（兼容不同保存方式）
-                  let linkData: any = null
-                  
-                  // 方式1: 从link字段解析（字符串格式）
-                  if (selectedElement.link && typeof selectedElement.link === 'string') {
-                    try {
-                      linkData = JSON.parse(selectedElement.link)
-                      console.log('从link字段解析3D模型信息:', linkData)
-                    } catch (e) {
-                      console.warn('解析link字段失败:', selectedElement.link, e)
-                    }
-                  }
-                  
-                  // 方式2: 从customData字段解析（备用）
-                  if (!linkData && (selectedElement as any).customData) {
-                    try {
-                      const customData = (selectedElement as any).customData
-                      linkData = typeof customData === 'string' 
-                        ? JSON.parse(customData) 
-                        : customData
-                      console.log('从customData字段解析3D模型信息:', linkData)
-                    } catch (e) {
-                      console.warn('解析customData字段失败:', e)
-                    }
-                  }
-                  
-                  // 方式3: 如果link是对象，直接使用
-                  if (!linkData && selectedElement.link && typeof selectedElement.link === 'object') {
-                    linkData = selectedElement.link
-                    console.log('从link对象获取3D模型信息:', linkData)
-                  }
-                  
-                  // 调试：打印元素信息
-                  if (selectedElement.strokeColor === '#0066ff' && selectedElement.strokeWidth === 2) {
-                    console.log('检测到3D模型预览图元素:', {
-                      id: selectedId,
-                      link: selectedElement.link,
-                      customData: (selectedElement as any).customData,
-                      parsedData: linkData
-                    })
-                  }
-                  
-                  if (linkData && linkData.type === '3d_model' && linkData.modelUrl && linkData.format) {
-                    // 如果弹框刚关闭，忽略选中事件
-                    if (modalJustClosedRef.current) {
-                      console.log('弹框刚关闭，忽略选中事件')
-                      lastClickedElementRef.current = null
-                      return
-                    }
-                    
-                    const now = Date.now()
-                    // 检测双击：如果400ms内点击了同一个元素，认为是双击
-                    if (lastClickedElementRef.current === selectedId && 
-                        now - lastClickTimeRef.current < 400) {
-                      // 双击触发
-                      console.log('双击3D模型预览图，打开弹框', linkData)
-                      on3DModelClick?.(linkData.modelUrl, linkData.format, linkData.mtlUrl, linkData.textureUrl)
-                      lastClickedElementRef.current = null // 重置，避免重复触发
-                      lastClickTimeRef.current = 0
-                    } else {
-                      // 记录单击
-                      lastClickTimeRef.current = now
-                      lastClickedElementRef.current = selectedId
-                    }
-                  } else if (linkData && linkData.type === 'video' && linkData.videoUrl && onVideoClick) {
-                    // 检测视频预览图点击
-                    if (modalJustClosedRef.current) {
-                      console.log('弹框刚关闭，忽略选中事件')
-                      lastClickedElementRef.current = null
-                      return
-                    }
-                    
-                    const now = Date.now()
-                    // 检测双击：如果400ms内点击了同一个元素，认为是双击
-                    if (lastClickedElementRef.current === selectedId && 
-                        now - lastClickTimeRef.current < 400) {
-                      // 双击触发
-                      console.log('双击视频预览图，打开弹框', linkData)
-                      onVideoClick(linkData.videoUrl)
-                      lastClickedElementRef.current = null // 重置，避免重复触发
-                      lastClickTimeRef.current = 0
-                    } else {
-                      // 记录单击
-                      lastClickTimeRef.current = now
-                      lastClickedElementRef.current = selectedId
-                    }
-                  } else {
-                    lastClickedElementRef.current = null
-                  }
-                } else {
-                  lastClickedElementRef.current = null
-                }
-              } else {
-                lastClickedElementRef.current = null
-              }
+            // 监听选中状态变化，只在取消选中时清除记录
+            const selectedIds = appState?.selectedElementIds ? Object.keys(appState.selectedElementIds) : []
+            if (selectedIds.length === 0) {
+              // 取消选中，清除所有记录
+              lastSelectedElementIdRef.current = null
+              lastClickedElementRef.current = null
             }
             
             const data: ExcalidrawCanvasData = sanitizeCanvasData({

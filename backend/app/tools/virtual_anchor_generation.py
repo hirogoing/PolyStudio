@@ -1,15 +1,17 @@
 """
-虚拟主播生成工具 - 支持图片+音频生成虚拟人视频
+人脸检测工具 - 支持OpenCV和大模型两种方法进行人脸检测
+虚拟人生成工具 - 支持基于ComfyUI的虚拟人视频生成（图片+音频生成口型同步视频）
 """
 import json
 import logging
 import os
 import base64
-import uuid
 import requests
-from datetime import datetime
+import uuid
+import time
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from datetime import datetime
+from typing import Optional, Dict, Any
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -43,8 +45,7 @@ if ENV_PATH.exists():
 
 # 注意：人脸检测工具函数使用延迟导入，避免直接运行脚本时的路径问题
 
-# 虚拟主播生成相关配置
-VIRTUAL_ANCHOR_PROVIDER = os.getenv("VIRTUAL_ANCHOR_PROVIDER", "d-id").strip()
+# 人脸检测相关配置
 FACE_DETECTION_METHOD = os.getenv("FACE_DETECTION_METHOD", "opencv").strip()  # opencv 或 llm
 
 # 大模型人脸检测配置（使用火山引擎，从 .env 读取）
@@ -63,8 +64,19 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
+# ComfyUI 配置
+COMFYUI_SERVER_ADDRESS = os.getenv("COMFYUI_SERVER_ADDRESS", "").strip()
+COMFYUI_WORKFLOW_PATH = os.getenv("COMFYUI_WORKFLOW_PATH", "").strip()
+
 # Mock 模式配置
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+# Mock 视频路径（启用 MOCK_MODE 时必须配置）
+MOCK_VIDEO_PATH = os.getenv("MOCK_VIDEO_PATH", "").strip()
+if MOCK_MODE and not MOCK_VIDEO_PATH:
+    logger.warning(
+        "MOCK_MODE=true 时，建议配置 MOCK_VIDEO_PATH。"
+        "请在 backend/.env 中设置 MOCK_VIDEO_PATH=/storage/videos/your_video.mp4"
+    )
 
 
 def prepare_image_path(image_url: str) -> Path:
@@ -157,9 +169,12 @@ def detect_face_with_llm(image_path: Path) -> Dict[str, Any]:
     # 构建多模态输入（使用火山引擎官方格式）
     # 根据官方文档，格式应该是：
     # - type: "input_image"
-    # - type: "text"
+    # - type: "text" 关闭思考模式
     payload = {
         "model": VOLCANO_MODEL_NAME,
+         "thinking":{
+            "type":"disabled"
+        },
         "input": [
             {
                 "role": "user",
@@ -383,11 +398,11 @@ class DetectFaceInput(BaseModel):
 @tool("detect_face", args_schema=DetectFaceInput)
 def detect_face_tool(image_url: str, method: Optional[str] = None) -> str:
     """
-    人脸检测服务：检测图片中是否包含人脸，并验证是否适合用于虚拟主播生成。
+    人脸检测服务：检测图片中是否包含人脸，并验证人脸质量。
     
     支持两种检测方法：
     1. opencv（轻量级）：使用OpenCV Haar Cascade，速度快，无需API调用
-    2. llm（大模型）：使用火山引擎多模态模型，准确度高，支持更复杂的分析
+    2. llm（大模型）：使用多模态模型，准确度高，支持更复杂的分析
     
     Args:
         image_url: 图片URL或本地路径（如 /storage/images/xxx.jpg）
@@ -397,7 +412,7 @@ def detect_face_tool(image_url: str, method: Optional[str] = None) -> str:
         人脸检测结果的JSON字符串，包含：
         - has_face: 是否检测到人脸
         - face_count: 检测到的人脸数量
-        - is_valid: 是否适合用于虚拟主播生成
+        - is_valid: 人脸质量是否合格
         - validation_message: 验证信息
         - face_boxes: 人脸边界框列表
         - largest_face: 最大人脸的信息
@@ -442,268 +457,344 @@ def detect_face_tool(image_url: str, method: Optional[str] = None) -> str:
         }, ensure_ascii=False)
 
 
-class GenerateVirtualAnchorInput(BaseModel):
-    """虚拟主播生成输入参数"""
-    image_url: str = Field(description="肖像图片URL或本地路径")
-    audio_url: str = Field(description="音频文件URL或本地路径")
-    provider: Optional[str] = Field(default=None, description="提供商（d-id, heygen等），默认从环境变量读取")
+class ComfyUIClient:
+    """ComfyUI API 客户端"""
+    
+    def __init__(self, server_address: str):
+        self.server_address = server_address
+        self.base_url = f"https://{server_address}" if not server_address.startswith("http") else server_address
+    
+    def queue_prompt(self, prompt: Dict[str, Any], client_id: Optional[str] = None) -> Dict[str, Any]:
+        """提交工作流到队列"""
+        if client_id is None:
+            client_id = str(uuid.uuid4())
+        
+        data = {
+            "prompt": prompt,
+            "client_id": client_id
+        }
+        
+        response = requests.post(f"{self.base_url}/prompt", json=data, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_history(self, prompt_id: str) -> Dict[str, Any]:
+        """获取任务历史"""
+        response = requests.get(f"{self.base_url}/history/{prompt_id}", timeout=30)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_image(self, filename: str, subfolder: str = "", folder_type: str = "output") -> bytes:
+        """下载生成的图片/视频"""
+        params = {
+            "filename": filename,
+            "subfolder": subfolder,
+            "type": folder_type
+        }
+        response = requests.get(f"{self.base_url}/view", params=params, timeout=300)
+        response.raise_for_status()
+        return response.content
+    
+    def upload_image(self, image_path: Path, subfolder: str = "") -> str:
+        """上传图片"""
+        with open(image_path, 'rb') as f:
+            files = {'image': f}
+            data = {}
+            if subfolder:
+                data['subfolder'] = subfolder
+            response = requests.post(f"{self.base_url}/upload/image", files=files, data=data, timeout=60)
+        
+        response.raise_for_status()
+        result = response.json()
+        return result['name']
+    
+    def upload_audio(self, audio_path: Path, subfolder: str = "") -> str:
+        """上传音频"""
+        with open(audio_path, 'rb') as f:
+            files = {'image': f}  # ComfyUI 使用 'image' 字段名上传任意文件
+            data = {}
+            if subfolder:
+                data['subfolder'] = subfolder
+            response = requests.post(f"{self.base_url}/upload/image", files=files, data=data, timeout=60)
+        
+        response.raise_for_status()
+        result = response.json()
+        return result['name']
 
 
-def prepare_audio_input(audio_url: str) -> str:
+def prepare_audio_path(audio_url: str) -> Path:
     """
-    准备音频输入，处理本地文件（转Base64）或公网URL
+    准备音频路径，支持本地文件
     
     Args:
-        audio_url: 本地路径（如 /storage/audios/xxx.mp3）或 localhost URL 或公网URL
+        audio_url: 本地路径（如 /storage/audios/xxx.mp3）
     
     Returns:
-        Base64编码字符串（本地文件）或URL字符串（公网URL）
-    
-    Raises:
-        FileNotFoundError: 本地文件不存在
+        Path: 本地文件路径
     """
-    # 检查是否是本地路径
-    if audio_url.startswith("/storage/"):
-        # 本地文件，读取并转换为Base64
+    if audio_url.startswith("/storage/") or audio_url.startswith("storage/"):
         file_path = BASE_DIR / audio_url.lstrip("/")
         if not file_path.exists():
             raise FileNotFoundError(f"本地文件不存在: {file_path}")
-        
-        logger.info(f"📁 读取本地音频文件: {file_path}")
-        
-        # 读取文件
-        with open(file_path, "rb") as f:
-            audio_data = f.read()
-        
-        # 获取文件扩展名，确定音频格式
-        ext = file_path.suffix.lower()
-        if ext in [".mp3"]:
-            audio_format = "mp3"
-        elif ext in [".wav"]:
-            audio_format = "wav"
-        elif ext in [".m4a"]:
-            audio_format = "m4a"
-        elif ext in [".aac"]:
-            audio_format = "aac"
-        else:
-            audio_format = "mp3"
-            logger.warning(f"未知音频格式 {ext}，使用 mp3")
-        
-        # 转换为Base64
-        base64_data = base64.b64encode(audio_data).decode("utf-8")
-        return f"data:audio/{audio_format};base64,{base64_data}"
+        return file_path
     
-    # 检查是否是localhost URL
-    elif audio_url.startswith("http://localhost") or audio_url.startswith("http://127.0.0.1"):
-        # localhost URL，也转换为Base64
-        try:
-            import urllib.request
-            with urllib.request.urlopen(audio_url) as response:
-                audio_data = response.read()
-            
-            # 从URL推断格式
-            if audio_url.endswith(".mp3"):
-                audio_format = "mp3"
-            elif audio_url.endswith(".wav"):
-                audio_format = "wav"
-            elif audio_url.endswith(".m4a"):
-                audio_format = "m4a"
-            else:
-                audio_format = "mp3"
-            
-            base64_data = base64.b64encode(audio_data).decode("utf-8")
-            return f"data:audio/{audio_format};base64,{base64_data}"
-        except Exception as e:
-            logger.error(f"❌ 无法下载 localhost 音频: {e}")
-            raise
-    
-    # 公网URL，直接返回
-    else:
-        logger.info(f"🌐 使用公网音频URL: {audio_url}")
-        return audio_url
+    raise ValueError(f"暂不支持URL音频，请使用本地路径: {audio_url}")
+
+
+class GenerateVirtualAnchorInput(BaseModel):
+    """虚拟主播生成输入参数"""
+    image_url: str = Field(description="肖像图片URL或本地路径（如 /storage/images/xxx.jpg）")
+    audio_url: str = Field(description="音频文件URL或本地路径（如 /storage/audios/xxx.mp3）")
+    workflow_path: Optional[str] = Field(default=None, description="工作流JSON文件路径，默认从环境变量读取")
+    prompt_text: Optional[str] = Field(default=None, description="提示词文本")
+    negative_prompt: Optional[str] = Field(default=None, description="负面提示词")
+    seed: Optional[int] = Field(default=None, description="随机种子")
+    num_frames: int = Field(default=1450, description="视频帧数")
+    fps: int = Field(default=25, description="视频帧率")
+    poll_interval: int = Field(default=10, description="轮询间隔（秒）")
+    wait_for_completion: bool = Field(default=True, description="是否等待任务完成")
 
 
 @tool("generate_virtual_anchor", args_schema=GenerateVirtualAnchorInput)
 def generate_virtual_anchor_tool(
     image_url: str,
     audio_url: str,
-    provider: Optional[str] = None
+    workflow_path: Optional[str] = None,
+    prompt_text: Optional[str] = None,
+    negative_prompt: Optional[str] = None,
+    seed: Optional[int] = None,
+    num_frames: int = 1450,
+    fps: int = 25,
+    poll_interval: int = 10,
+    wait_for_completion: bool = True
 ) -> str:
     """
-    虚拟主播生成服务：根据图片和音频生成口型同步的虚拟人视频。
+    虚拟主播生成服务：根据图片和音频生成口型同步的虚拟人视频（基于ComfyUI）。
     
-    使用火山引擎单图音频驱动API，包含两个步骤：
-    1. 形象创建：上传角色形象图片，创建虚拟人形象
-    2. 视频生成：使用创建的形象和音频文件生成视频
+    使用ComfyUI InfiniteTalk工作流，包含以下步骤：
+    1. 上传图片和音频到ComfyUI服务器
+    2. 加载并配置工作流
+    3. 提交任务到队列
+    4. 轮询任务状态直到完成
+    5. 下载生成的视频并保存到本地
     
     Args:
         image_url: 肖像图片URL或本地路径（如 /storage/images/xxx.jpg）
         audio_url: 音频文件URL或本地路径（如 /storage/audios/xxx.mp3）
-        provider: 提供商，目前仅支持 "volcano"（火山引擎），默认从环境变量读取
+        workflow_path: 工作流JSON文件路径，默认从环境变量 COMFYUI_WORKFLOW_PATH 读取
+        prompt_text: 提示词文本（可选）
+        negative_prompt: 负面提示词（可选）
+        seed: 随机种子（可选）
+        num_frames: 视频帧数（默认1450）
+        fps: 视频帧率（默认25）
+        poll_interval: 轮询间隔秒数（默认10）
+        wait_for_completion: 是否等待任务完成（默认True）
     
     Returns:
         生成的视频文件路径的JSON字符串或错误信息
     """
     try:
-        # 确定使用的提供商
-        if provider is None:
-            provider = VIRTUAL_ANCHOR_PROVIDER
+        # Mock 模式：直接返回固定的视频路径
+        if MOCK_MODE:
+            logger.info(f"🎭 [MOCK模式] 生成虚拟人视频: image={image_url}, audio={audio_url}")
+            result = {
+                "success": True,
+                "video_path": MOCK_VIDEO_PATH or "/storage/videos/mock_virtual_anchor.mp4",
+                "video_filename": os.path.basename(MOCK_VIDEO_PATH) if MOCK_VIDEO_PATH else "mock_virtual_anchor.mp4",
+                "provider": "comfyui",
+                "mock": True,
+                "message": "[MOCK] 虚拟人视频已生成并保存到本地"
+            }
+            logger.info(f"✅ [MOCK模式] 返回结果: {result['video_path']}")
+            return json.dumps(result, ensure_ascii=False)
         
-        if provider != "volcano":
+        # 检查配置
+        if not COMFYUI_SERVER_ADDRESS:
             return json.dumps({
-                "error": f"不支持的提供商: {provider}",
-                "message": "目前仅支持 volcano（火山引擎）"
+                "error": "未配置 COMFYUI_SERVER_ADDRESS",
+                "message": "请在 backend/.env 中设置 COMFYUI_SERVER_ADDRESS"
             }, ensure_ascii=False)
         
-        if not VOLCANO_API_KEY:
+        # 确定工作流路径
+        if workflow_path is None:
+            workflow_path = COMFYUI_WORKFLOW_PATH
+        
+        if not workflow_path:
             return json.dumps({
-                "error": "未配置 VOLCANO_API_KEY",
-                "message": "请在 backend/.env 中设置 VOLCANO_API_KEY"
+                "error": "未指定工作流路径",
+                "message": "请提供 workflow_path 参数或在 backend/.env 中设置 COMFYUI_WORKFLOW_PATH"
+            }, ensure_ascii=False)
+        
+        # 处理路径：支持 /storage/ 开头的相对路径和绝对路径
+        if workflow_path.startswith("/storage/") or workflow_path.startswith("storage/"):
+            workflow_path_obj = BASE_DIR / workflow_path.lstrip("/")
+        else:
+            workflow_path_obj = Path(workflow_path)
+            # 如果是相对路径，则相对于 BASE_DIR
+            if not workflow_path_obj.is_absolute():
+                workflow_path_obj = BASE_DIR / workflow_path
+        
+        if not workflow_path_obj.exists():
+            return json.dumps({
+                "error": f"工作流文件不存在: {workflow_path}",
+                "message": f"请检查工作流文件路径（已解析为: {workflow_path_obj}）"
             }, ensure_ascii=False)
         
         logger.info(f"🎬 开始生成虚拟人视频: image={image_url}, audio={audio_url}")
         
-        # 步骤1：准备图片输入
-        image_input = prepare_image_base64(prepare_image_path(image_url))
-        logger.info(f"✅ 图片已准备: {len(image_input)} 字符")
+        # 步骤1：准备图片和音频路径
+        image_path = prepare_image_path(image_url)
+        audio_path = prepare_audio_path(audio_url)
         
-        # 步骤2：准备音频输入
-        audio_input = prepare_audio_input(audio_url)
-        logger.info(f"✅ 音频已准备: {len(audio_input) if isinstance(audio_input, str) else 'URL'} 字符")
+        logger.info(f"✅ 图片路径: {image_path}")
+        logger.info(f"✅ 音频路径: {audio_path}")
         
-        # 步骤3：创建形象（调用步骤1：形象创建）
-        # 根据火山引擎文档：https://www.volcengine.com/docs/86081/1804514?lang=zh
-        # 注意：API端点可能需要根据实际文档调整
-        # 可能的端点：/video/avatars, /avatars, /api/v3/video/avatars 等
-        avatar_url = f"{VOLCANO_BASE_URL.rstrip('/')}/video/avatars"
-        headers = {
-            "Authorization": f"Bearer {VOLCANO_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        # 步骤2：创建ComfyUI客户端
+        client = ComfyUIClient(COMFYUI_SERVER_ADDRESS)
+        logger.info(f"🌐 ComfyUI服务器: {client.base_url}")
         
-        avatar_payload = {
-            "image": image_input  # base64编码的图片
-        }
+        # 步骤3：上传图片和音频
+        logger.info(f"📤 上传图片...")
+        uploaded_image = client.upload_image(image_path)
+        logger.info(f"✅ 图片已上传: {uploaded_image}")
         
-        logger.info(f"📤 步骤1: 创建虚拟人形象")
-        logger.info(f"   API地址: {avatar_url}")
+        logger.info(f"📤 上传音频...")
+        uploaded_audio = client.upload_audio(audio_path)
+        logger.info(f"✅ 音频已上传: {uploaded_audio}")
         
-        avatar_response = requests.post(avatar_url, json=avatar_payload, headers=headers, timeout=60)
+        # 步骤4：加载工作流
+        logger.info(f"📋 加载工作流: {workflow_path}")
+        with open(workflow_path_obj, 'r', encoding='utf-8') as f:
+            workflow = json.load(f)
         
-        if avatar_response.status_code != 200:
-            error_text = avatar_response.text[:500] if len(avatar_response.text) > 500 else avatar_response.text
-            logger.error(f"❌ 形象创建失败: status={avatar_response.status_code}")
-            logger.error(f"   错误响应: {error_text}")
-            return json.dumps({
-                "error": f"形象创建失败: status={avatar_response.status_code}",
-                "message": error_text
-            }, ensure_ascii=False)
-        
-        avatar_data = avatar_response.json()
-        logger.info(f"📥 形象创建响应: {json.dumps(avatar_data, ensure_ascii=False)[:500]}...")
-        
-        # 提取形象ID
-        avatar_id = None
-        if "avatar_id" in avatar_data:
-            avatar_id = avatar_data["avatar_id"]
-        elif "id" in avatar_data:
-            avatar_id = avatar_data["id"]
-        elif "data" in avatar_data and isinstance(avatar_data["data"], dict):
-            avatar_id = avatar_data["data"].get("avatar_id") or avatar_data["data"].get("id")
-        
-        if not avatar_id:
-            logger.error(f"❌ 无法从响应中提取形象ID")
-            logger.error(f"   完整响应: {json.dumps(avatar_data, ensure_ascii=False)}")
-            return json.dumps({
-                "error": "形象创建成功但无法提取形象ID",
-                "response": avatar_data
-            }, ensure_ascii=False)
-        
-        logger.info(f"✅ 形象创建成功: avatar_id={avatar_id}")
-        
-        # 步骤4：生成视频（调用步骤2：视频生成）
-        # 根据火山引擎文档：https://www.volcengine.com/docs/86081/1804515?lang=zh
-        # 注意：API端点可能需要根据实际文档调整
-        # 可能的端点：/video/generations, /videos, /api/v3/video/generations 等
-        video_url = f"{VOLCANO_BASE_URL.rstrip('/')}/video/generations"
-        
-        video_payload = {
-            "avatar_id": avatar_id,
-            "audio": audio_input  # base64编码的音频或URL
-        }
-        
-        logger.info(f"📤 步骤2: 生成虚拟人视频")
-        logger.info(f"   API地址: {video_url}")
-        logger.info(f"   形象ID: {avatar_id}")
-        
-        video_response = requests.post(video_url, json=video_payload, headers=headers, timeout=120)
-        
-        if video_response.status_code != 200:
-            error_text = video_response.text[:500] if len(video_response.text) > 500 else video_response.text
-            logger.error(f"❌ 视频生成失败: status={video_response.status_code}")
-            logger.error(f"   错误响应: {error_text}")
-            return json.dumps({
-                "error": f"视频生成失败: status={video_response.status_code}",
-                "message": error_text
-            }, ensure_ascii=False)
-        
-        video_data = video_response.json()
-        logger.info(f"📥 视频生成响应: {json.dumps(video_data, ensure_ascii=False)[:500]}...")
-        
-        # 提取视频URL
-        video_url_result = None
-        if "video_url" in video_data:
-            video_url_result = video_data["video_url"]
-        elif "url" in video_data:
-            video_url_result = video_data["url"]
-        elif "data" in video_data:
-            if isinstance(video_data["data"], dict):
-                video_url_result = video_data["data"].get("video_url") or video_data["data"].get("url")
-            elif isinstance(video_data["data"], str):
-                video_url_result = video_data["data"]
-        
-        if not video_url_result:
-            logger.error(f"❌ 无法从响应中提取视频URL")
-            logger.error(f"   完整响应: {json.dumps(video_data, ensure_ascii=False)}")
-            return json.dumps({
-                "error": "视频生成成功但无法提取视频URL",
-                "response": video_data
-            }, ensure_ascii=False)
-        
-        logger.info(f"✅ 视频生成成功: video_url={video_url_result}")
-        
-        # 步骤5：下载视频并保存到本地
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        video_filename = f"virtual_anchor_{timestamp}_{unique_id}.mp4"
-        video_path = VIDEOS_DIR / video_filename
-        
-        logger.info(f"📥 下载视频到本地: {video_path}")
-        
+        # 步骤5：配置工作流参数
+        # 注意：以下节点ID基于参考代码中的InfiniteTalk工作流
+        # 实际使用时可能需要根据具体工作流JSON文件调整节点ID
+        # 可以通过查看工作流JSON文件来确定正确的节点ID
         try:
-            video_download_response = requests.get(video_url_result, timeout=300)
-            if video_download_response.status_code == 200:
-                with open(video_path, "wb") as f:
-                    f.write(video_download_response.content)
-                logger.info(f"✅ 视频已保存: {video_path}")
-            else:
-                logger.warning(f"⚠️ 视频下载失败，使用原始URL: {video_url_result}")
-                video_path = None
-        except Exception as e:
-            logger.warning(f"⚠️ 视频下载异常: {e}，使用原始URL: {video_url_result}")
-            video_path = None
+            workflow["133"]["inputs"]["image"] = uploaded_image
+            workflow["125"]["inputs"]["audio"] = uploaded_audio
+            
+            if prompt_text:
+                workflow["135"]["inputs"]["positive_prompt"] = prompt_text
+            
+            if negative_prompt:
+                workflow["135"]["inputs"]["negative_prompt"] = negative_prompt
+            
+            if seed is not None:
+                workflow["128"]["inputs"]["seed"] = seed
+            
+            workflow["194"]["inputs"]["num_frames"] = num_frames
+            workflow["194"]["inputs"]["fps"] = fps
+            workflow["131"]["inputs"]["frame_rate"] = fps
+        except KeyError as e:
+            logger.warning(f"⚠️ 工作流节点配置失败: {e}")
+            logger.warning(f"   请检查工作流JSON文件中的节点ID是否正确")
+            logger.warning(f"   参考节点ID: 133(image), 125(audio), 135(prompt), 128(seed), 194(frames), 131(fps)")
+            # 继续执行，让用户自己检查工作流配置
         
-        # 构建返回结果
-        result = {
-            "success": True,
-            "avatar_id": avatar_id,
-            "video_url": video_url_result,
-            "video_path": f"/storage/videos/{video_filename}" if video_path else None,
-            "provider": "volcano"
-        }
+        logger.info(f"✅ 工作流已配置: num_frames={num_frames}, fps={fps}")
         
-        logger.info(f"🎉 虚拟人视频生成完成")
-        return json.dumps(result, ensure_ascii=False)
+        # 步骤6：提交任务
+        logger.info(f"📤 提交任务到队列...")
+        result = client.queue_prompt(workflow)
+        prompt_id = result.get("prompt_id")
+        
+        if not prompt_id:
+            return json.dumps({
+                "error": "任务提交失败",
+                "message": "无法获取 prompt_id",
+                "response": result
+            }, ensure_ascii=False)
+        
+        logger.info(f"✅ 任务已提交: prompt_id={prompt_id}")
+        
+        # 步骤7：等待任务完成（如果需要）
+        if wait_for_completion:
+            logger.info(f"⏳ 等待任务完成（轮询间隔: {poll_interval}秒）...")
+            max_wait_time = 3600  # 最大等待1小时
+            start_time = time.time()
+            
+            while True:
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_wait_time:
+                    return json.dumps({
+                        "error": "任务超时",
+                        "message": f"任务执行超过 {max_wait_time} 秒",
+                        "prompt_id": prompt_id
+                    }, ensure_ascii=False)
+                
+                try:
+                    history = client.get_history(prompt_id)
+                    if prompt_id in history:
+                        outputs = history[prompt_id].get("outputs", {})
+                        if outputs:
+                            logger.info(f"✅ 任务完成: prompt_id={prompt_id}")
+                            break
+                except Exception as e:
+                    logger.warning(f"⚠️ 获取历史失败: {e}")
+                
+                time.sleep(poll_interval)
+            
+            # 步骤8：下载生成的视频
+            logger.info(f"📥 下载生成的视频...")
+            video_filename = None
+            video_subfolder = ""
+            
+            for node_id, node_output in outputs.items():
+                if 'gifs' in node_output:
+                    for video_info in node_output['gifs']:
+                        video_filename = video_info['filename']
+                        video_subfolder = video_info.get('subfolder', '')
+                        break
+                elif 'images' in node_output:
+                    # 有些工作流可能输出为images
+                    for img_info in node_output['images']:
+                        video_filename = img_info['filename']
+                        video_subfolder = img_info.get('subfolder', '')
+                        break
+            
+            if not video_filename:
+                return json.dumps({
+                    "error": "无法找到生成的视频",
+                    "message": "工作流输出中未找到视频文件",
+                    "outputs": outputs
+                }, ensure_ascii=False)
+            
+            logger.info(f"📥 下载视频: {video_filename} (subfolder: {video_subfolder})")
+            video_data = client.get_image(video_filename, subfolder=video_subfolder, folder_type='output')
+            
+            # 步骤9：保存视频到本地
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            unique_id = str(uuid.uuid4())[:8]
+            video_filename_local = f"virtual_anchor_{timestamp}_{unique_id}.mp4"
+            video_path = VIDEOS_DIR / video_filename_local
+            
+            with open(video_path, 'wb') as f:
+                f.write(video_data)
+            
+            logger.info(f"✅ 视频已保存: {video_path}")
+            
+            # 构建返回结果
+            result = {
+                "success": True,
+                "prompt_id": prompt_id,
+                "video_path": f"/storage/videos/{video_filename_local}",
+                "video_url": f"/storage/videos/{video_filename_local}",  # 添加 video_url 字段，供前端使用
+                "video_filename": video_filename_local,
+                "provider": "comfyui"
+            }
+            
+            logger.info(f"🎉 虚拟人视频生成完成")
+            return json.dumps(result, ensure_ascii=False)
+        else:
+            # 不等待完成，直接返回prompt_id
+            return json.dumps({
+                "success": True,
+                "prompt_id": prompt_id,
+                "message": "任务已提交，请稍后查询结果",
+                "provider": "comfyui"
+            }, ensure_ascii=False)
         
     except FileNotFoundError as e:
         error_msg = sanitize_error_message(str(e))
@@ -740,28 +831,22 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
     # 测试人脸检测（由于使用了延迟导入，现在可以正常工作了）
-    result = detect_face_tool.invoke({
-        "image_url": "/storage/images/volcano_20260121_172941_2e425df2_特写主角面部眼神中闪过一丝迷茫随即恢复坚定展现内心的抉.jpg",
-        "method": "opencv"
-    })
-    print("检测结果:", result)
+    # result = detect_face_tool.invoke({
+    #     "image_url": "/storage/images/volcano_20260121_172941_2e425df2_特写主角面部眼神中闪过一丝迷茫随即恢复坚定展现内心的抉.jpg",
+    #     "method": "opencv"
+    # })
+    # print("检测结果:", result)
 
-    result = detect_face_tool.invoke({
-        "image_url": "/storage/images/20251215_111010_633e9de4_Shanghai_Yu_Garden_classical_C.png",
-        "method": "opencv"
-    })
-    print("检测结果:", result)
+    # # 测试人脸检测（由于使用了延迟导入，现在可以正常工作了）
+    # result = detect_face_tool.invoke({
+    #     "image_url": "/storage/images/volcano_20260121_172941_2e425df2_特写主角面部眼神中闪过一丝迷茫随即恢复坚定展现内心的抉.jpg",
+    #     "method": "llm"
+    # })
+    # print("检测结果llm:", result)
 
-
-    # 测试人脸检测（由于使用了延迟导入，现在可以正常工作了）
-    result = detect_face_tool.invoke({
-        "image_url": "/storage/images/volcano_20260121_172941_2e425df2_特写主角面部眼神中闪过一丝迷茫随即恢复坚定展现内心的抉.jpg",
-        "method": "llm"
+    result = generate_virtual_anchor_tool.invoke({
+        "image_url": "/storage/images/虚拟人测试图.png",
+        "audio_url": "/storage/audios/poly_studio_intro.wav",
+        "workflow_path": "/storage/workflow/infinitetalk_workflow.json"
     })
-    print("检测结果llm:", result)
-
-    result = detect_face_tool.invoke({
-        "image_url": "/storage/images/20251215_111010_633e9de4_Shanghai_Yu_Garden_classical_C.png",
-        "method": "llm"
-    })
-    print("检测结果llm:", result)
+    print("虚拟人视频生成结果:", result)

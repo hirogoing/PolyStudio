@@ -1,39 +1,39 @@
-# PolyStudio
+# 🎨 PolyStudio
 
-一个「对话式生图/改图 + 可视化画板」项目：FastAPI 后端通过 LangGraph 编排工具调用，React 前端用 Excalidraw 做画板承载与项目管理，支持 SSE 流式输出、图片自动落到画板、项目链接与历史记录。
+[Python 3.9+](https://www.python.org/downloads/) | [Node.js 18+](https://nodejs.org/) | [License: MIT](https://opensource.org/licenses/MIT)
 
-> 仓库总览与其他子项目导航见根目录：`README.md`
+PolyStudio 是一个对话式多模态内容生成平台，将语言模型与专业工具（如图片生成、视频生成、3D 模型生成）相结合，通过自然语言对话即可生成和管理多媒体内容。项目采用 FastAPI + LangGraph 构建智能 Agent 编排系统，提供无限画板承载与项目管理，支持 SSE 流式输出、自动内容插入、项目链接分享等功能。
+
+PolyStudio 支持灵活的 API 接入，你可以轻松替换为任意图片、视频、3D 生成服务，打造属于自己的多模态创作工具。
+
+### 界面展示
+
+#### 首页
+![首页](assets/首页.png)
+
+#### 编辑页
+![编辑页](assets/编辑页.png)
+
+![编辑页2](assets/编辑页2.png)
 
 ### 功能概览
 
-- **对话式生成/编辑图片**：支持 `generate_volcano_image` / `edit_volcano_image`（火山引擎图片生成）
-- **视频生成**：支持 `generate_volcano_video`（火山引擎视频生成，使用 Seedance 1.5 Pro）
-  - **文生视频**：基于文本描述生成视频
-  - **图生视频-首帧**：基于首帧图片生成视频
-  - **首尾帧**：基于首帧和尾帧图片生成过渡视频
-  - 支持图片 URL 和本地路径输入（本地路径如 `/storage/images/xxx.jpg` 会自动转换为 base64）
-- **3D 模型生成**：支持基于文本或图片生成 3D 模型（OBJ/GLB 格式），使用腾讯云混元生3D API
-  - **文生3D**：通过文本描述生成 3D 模型
-  - **图生3D**：基于图片生成 3D 模型
-  - **混合模式**：同时使用文本和图片生成 3D 模型
+- **虚拟人生成**：支持图片 + 音频生成口型同步的虚拟主播视频，基于 ComfyUI 工作流，支持人脸检测与质量验证 🆕
+- **音频上传与管理**：前端支持音频文件上传（MP3/WAV/M4A 等格式），在对话中可视化展示 🆕
+- **长视频工作流**：角色一致性分镜生成 → 生图 → 图生视频 → 拼接的完整流程，兼容 moviepy 2.x 🆕
+- **路径自动处理**：视频工具支持本地/公网/localhost 路径自动处理（含 base64 转换与下载） 🆕
+- **统一 Mock 模式**：3D/图片/视频/虚拟人工具统一 Mock 模式，便于离线或调试 🆕
+- **SSE 流式输出优化**：实时推送 delta、工具调用与结果 🆕
+- **对话式生成/编辑图片**：支持图片生成和编辑，可替换为任意图片生成 API
+- **视频生成**：支持基于文本、图片或首尾帧生成视频，支持图片 URL 和本地路径输入（本地路径如 `/storage/images/xxx.jpg` 会自动转换为 base64），可替换为任意视频生成 API
+- **3D 模型生成**：支持基于文本或图片生成 3D 模型（OBJ/GLB 格式），可替换为任意 3D 生成 API
+- **人脸检测**：支持 OpenCV 或 LLM 两种人脸检测方式，用于虚拟人生成前的图片质量验证
 - **SSE 流式输出**：逐步展示工具调用与结果
-- **Excalidraw 画板**：生成的图片自动插入画布，支持缩放/对齐/框选
+- **无限画板**：生成的图片和视频自动插入画布，支持缩放/对齐/框选/编辑等，视频双击可播放
 - **3D 模型查看器**：前端集成 3D 模型预览功能，支持 OBJ/GLB 格式
 - **项目管理**：项目列表、重命名、复制链接、删除
-- **全局深色主题**：前端与画板默认深色
-- **本地持久化**：
-  - 图片保存到 `backend/storage/images/`
-  - 视频保存到 `backend/storage/videos/`
-  - 3D 模型保存到 `backend/storage/models/`（包含 OBJ、MTL、纹理文件）
-  - 项目与聊天记录保存到 `backend/storage/chat_history.json`
-
-### 更新日志（重点功能，一行一句）
-
-- 🆕 新增视频拼接工具 `concatenate_videos`，支持多片段合成长视频（moviepy 2.x 兼容）。
-- 🆕 Prompt 增强长视频工作流：分镜生成 → 生图 → 图生视频 → 拼接 → 质检。
-- 视频工具支持本地/公网/localhost 路径自动处理（含 base64 转换与下载）。
-- 3D/图片/视频工具统一 Mock 模式，便于离线或调试。
-- SSE 流式输出优化，实时推送 delta、工具调用与结果。
+- **全局主题切换**：前端与画板支持深色和浅色模式，默认深色
+- **本地持久化**：图片保存到 `backend/storage/images/`，视频保存到 `backend/storage/videos/`，音频保存到 `backend/storage/audios/`，3D 模型保存到 `backend/storage/models/`（包含 OBJ、MTL、纹理文件），项目与聊天记录保存到 `backend/storage/chat_history.json`
 
 ### 目录结构
 
@@ -41,7 +41,7 @@
 PolyStudio/
 ├── backend/                 # FastAPI 后端
 │   ├── app/                 # 业务代码
-│   │   ├── tools/           # 工具模块（图片生成、视频生成、3D模型生成）
+│   │   ├── tools/           # 工具模块（图片生成、视频生成、3D模型生成、虚拟人生成）
 │   │   ├── services/        # 服务模块（Agent服务、流式处理）
 │   │   └── utils/           # 工具函数（日志配置等）
 │   ├── requirements.txt     # Python 依赖（以此为准）
@@ -50,6 +50,7 @@ PolyStudio/
 │   ├── storage/              # 运行数据
 │   │   ├── images/          # 生成的图片
 │   │   ├── videos/          # 生成的视频
+│   │   ├── audios/          # 上传的音频
 │   │   ├── models/          # 生成的3D模型（OBJ、MTL、纹理文件）
 │   │   └── chat_history.json # 聊天历史记录
 │   └── logs/                # 日志文件（按日期和大小自动轮转）
@@ -96,14 +97,18 @@ cp env.example .env
 
 **必需的环境变量：**
 - `OPENAI_API_KEY`：LLM API 密钥（用于对话模型，当 `LLM_PROVIDER=siliconflow` 时使用）
-- `VOLCANO_API_KEY`：火山引擎 API 密钥（用于图片生成、视频生成和 LLM，必需）
-- `TENCENT_AI3D_API_KEY`：腾讯云混元生3D API 密钥（用于 3D 模型生成）
+- 图片/视频生成 API 密钥（根据你使用的 API 提供商配置，如 `VOLCANO_API_KEY` 等）
+- 3D 模型生成 API 密钥（根据你使用的 API 提供商配置，如 `TENCENT_AI3D_API_KEY` 等）
 
-**可选的环境变量：**
+**虚拟人生成配置（可选）：**
+- `COMFYUI_SERVER_ADDRESS`：ComfyUI 服务器地址（用于虚拟人生成）
+- `COMFYUI_WORKFLOW_PATH`：ComfyUI 工作流文件路径（JSON 格式）
+- `FACE_DETECTION_METHOD`：人脸检测方式，可选值：`opencv`（默认）、`llm`
+
+**其他可选环境变量：**
 - `LLM_PROVIDER`：LLM 提供商，可选值：`volcano`（默认）、`siliconflow`
-- `VOLCANO_VIDEO_MODEL`：火山引擎视频生成模型（默认：`doubao-seedance-1-5-pro`）
 - `MOCK_MODE`：设置为 `true` 启用 Mock 模式（调试用，不调用真实 API）
-  - 启用 Mock 模式时，必须同时配置 `MOCK_IMAGE_PATH`、`MOCK_VIDEO_PATH` 和 `MOCK_MODEL_PATH`
+  - 启用 Mock 模式时，必须同时配置 `MOCK_IMAGE_PATH`、`MOCK_VIDEO_PATH`、`MOCK_MODEL_PATH` 和 `MOCK_VIRTUAL_ANCHOR_PATH`
 - `LOG_LEVEL`：日志级别（DEBUG, INFO, WARNING, ERROR, CRITICAL，默认：INFO）
 
 3) 启动后端（推荐）：
@@ -137,72 +142,23 @@ npm run dev
 - `/api` -> `http://localhost:8000`
 - `/storage` -> `http://localhost:8000`
 
-### API（SSE）
-
-#### POST `/api/chat`
-
-请求体：
-
-```json
-{
-  "message": "生成一张赛博朋克城市夜景",
-  "messages": [],
-  "session_id": "optional-session-id"
-}
-```
-
-响应（SSE）示例：
-
-```
-data: {"type":"delta","content":"..."}
-data: {"type":"tool_call","id":"...","name":"generate_volcano_image","arguments":{...}}
-data: {"type":"tool_result","tool_call_id":"...","content":"{...image_url...}"}
-data: {"type":"tool_call","id":"...","name":"generate_volcano_video","arguments":{...}}
-data: {"type":"tool_result","tool_call_id":"...","content":"{...video_url...}"}
-data: {"type":"tool_call","id":"...","name":"generate_3d_model","arguments":{...}}
-data: {"type":"tool_result","tool_call_id":"...","content":"{...model_path...}"}
-data: [DONE]
-```
-
-**支持的工具：**
-- `generate_volcano_image`：生成图片（火山引擎）
-- `edit_volcano_image`：编辑图片（火山引擎）
-- `generate_volcano_video`：生成视频（火山引擎 Seedance）
-  - 参数：
-    - `prompt`（文本描述，必需）
-    - `mode`（生成模式，可选）：`"text"`（文生视频，默认）、`"image"`（图生视频-首帧）、`"start_end"`（首尾帧）
-    - `duration`（视频时长，秒，可选，4-12秒，默认5秒）
-    - `ratio`（视频宽高比，可选，默认 "16:9"）
-    - `image_url`（图片URL或本地路径，图生视频-首帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
-    - `start_image_url`（首帧图片URL或本地路径，首尾帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
-    - `end_image_url`（尾帧图片URL或本地路径，首尾帧模式使用，如 `/storage/images/xxx.jpg`，本地路径会自动转换为base64）
-- `generate_3d_model`：生成 3D 模型（腾讯云混元生3D）
-  - 参数：`prompt`（文本描述，可选）、`image_url`（图片URL，可选）、`format`（输出格式：obj/glb）
-
 ### 技术栈/服务说明（以代码为准）
 
-- **LLM（对话模型）**：支持两种提供商
-  - **火山引擎**（默认）：通过 `LLM_PROVIDER=volcano` 使用火山引擎 LLM，模型由 `VOLCANO_MODEL_NAME` 指定（默认：`doubao-seed-1-6-251015`）
-  - **SiliconFlow**：通过 `LLM_PROVIDER=siliconflow` 使用 SiliconFlow，通过 `OPENAI_BASE_URL` 指向 OpenAI 兼容接口，模型名由 `MODEL_NAME` 指定
-- **图像生成/编辑**：后端 `generate_volcano_image` / `edit_volcano_image` 工具调用火山引擎 Seedream API（并将结果下载保存到本地 `/storage/images`）
-- **视频生成**：后端 `generate_volcano_video` 工具调用火山引擎 Seedance API
-  - 使用模型：`doubao-seedance-1-5-pro`（Seedance 1.5 Pro，支持文生视频、图生视频-首帧、首尾帧三种模式）
-  - 生成的视频保存到本地 `/storage/videos`，文件名格式：`volcano_{timestamp}_{uuid}_{prompt}.mp4`
-  - 支持三种生成模式：
-    - **文生视频**（`mode="text"`）：基于文本描述生成视频
-    - **图生视频-首帧**（`mode="image"`）：基于首帧图片生成视频
-    - **首尾帧**（`mode="start_end"`）：基于首帧和尾帧图片生成过渡视频
-  - 支持图片 URL 和本地路径输入：
-    - 本地路径（如 `/storage/images/xxx.jpg`）会自动转换为 base64
-    - localhost URL（如 `http://localhost:8000/storage/images/xxx.jpg`）也会自动转换为 base64
-    - 公网 URL 直接使用
-  - 支持自定义视频参数：时长（4-12秒，默认5秒）、宽高比（默认 "16:9"）
-- **3D 模型生成**：后端 `generate_3d_model` 工具调用腾讯云混元生3D API，支持文生3D、图生3D和混合模式，生成的模型保存到本地 `/storage/models/`
+- **LLM（对话模型）**：支持多种提供商，可通过 `LLM_PROVIDER` 配置切换，可扩展为任意 OpenAI 兼容接口
+- **图像生成/编辑**：后端工具调用图片生成 API（结果下载保存到本地 `/storage/images`），可替换为任意图片生成服务
+- **视频生成**：后端工具调用视频生成 API，支持文本、图片或首尾帧生成模式，生成的视频保存到本地 `/storage/videos`，支持图片 URL 和本地路径输入（本地路径和 localhost URL 会自动转换为 base64，公网 URL 直接使用），支持自定义视频参数（时长、宽高比等）
+- **3D 模型生成**：后端工具调用 3D 生成 API，支持文本、图片或混合模式，生成的模型保存到本地 `/storage/models/`，可替换为任意 3D 生成服务
+- **虚拟人生成**：基于 ComfyUI 集成，支持图片 + 音频生成口型同步的虚拟主播视频
+  - 支持两种人脸检测方式：OpenCV（快速）或 LLM（精准）
+  - 自动上传图片和音频到 ComfyUI 服务器
+  - 轮询任务状态，生成完成后自动下载并保存到本地
+  - Mock 模式支持，便于调试
+- **音频处理**：支持前端上传音频文件（MP3/WAV/M4A/AAC/OGG/FLAC/WMA），保存到 `backend/storage/audios/`，在对话中可视化展示
 - **颜色一致性**：后端保存图片时会尝试做 sRGB 归一化（依赖 `Pillow`，已在 `requirements.txt` 固定）
 - **日志系统**：统一的日志配置，支持输出到控制台和文件（`backend/logs/`），可按日期和大小自动轮转
-- **Mock 模式**：支持启用 Mock 模式用于调试，返回固定的图片、视频和 3D 模型数据，无需调用真实 API
+- **Mock 模式**：支持启用 Mock 模式用于调试，返回固定的图片、视频、3D 模型和虚拟人数据，无需调用真实 API
   - 启用方式：在 `.env` 中设置 `MOCK_MODE=true`
-  - 必须配置：`MOCK_IMAGE_PATH`、`MOCK_VIDEO_PATH`、`MOCK_MODEL_PATH`（分别指向 `/storage/` 下的实际文件路径）
+  - 必须配置：`MOCK_IMAGE_PATH`、`MOCK_VIDEO_PATH`、`MOCK_MODEL_PATH`、`MOCK_VIRTUAL_ANCHOR_PATH`（分别指向 `/storage/` 下的实际文件路径）
 
 ### 常见问题（简版）
 

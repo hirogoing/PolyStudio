@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, memo } from 'react'
 import { Send, Paperclip, Image as ImageIcon, Sparkles, X, ChevronDown, ChevronRight, Link as LinkIcon, ArrowLeft, Sun, Moon, Download, Pause, Play } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import './ChatInterface.css'
@@ -33,6 +33,7 @@ interface Message {
   postToolContent?: string
   toolCalls?: ToolCall[]
   imageUrls?: string[] // 用户消息中的图片URL列表
+  audioUrls?: string[] // 用户消息中的音频URL列表
 }
 
 interface CanvasImage {
@@ -61,6 +62,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
   const [isLoading, setIsLoading] = useState(false)
   const [isPaused, setIsPaused] = useState(false) // 暂停状态
   const [uploadedImages, setUploadedImages] = useState<string[]>([]) // 上传的图片URL列表
+  const [uploadedAudios, setUploadedAudios] = useState<string[]>([]) // 上传的音频URL列表
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
@@ -371,22 +373,48 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
     scrollToBottom('auto')
   }, [messages])
 
-  const sendMessage = async (userMessage: string, skipAddUserMessage = false) => {
+  const sendMessage = async (userMessage: string, skipAddUserMessage = false, userMessageObj?: Message) => {
     const trimmed = (userMessage || '').trim()
     if (!trimmed || isLoading) return
     setIsLoading(true)
-    const newUserMessage: Message = {
-      role: 'user',
-      content: trimmed,
-    }
-    if (!skipAddUserMessage) {
+    
+    // 如果提供了 userMessageObj，直接使用它（包含 audioUrls 和 imageUrls）
+    // 否则，如果 skipAddUserMessage=true，从当前消息列表中获取最后一条用户消息
+    // 如果 skipAddUserMessage=false，创建新消息
+    let newUserMessage: Message
+    if (userMessageObj) {
+      newUserMessage = userMessageObj
+    } else if (skipAddUserMessage) {
+      // 从当前消息列表中获取最后一条用户消息，保留所有字段
+      const lastMessage = messages[messages.length - 1]
+      if (lastMessage && lastMessage.role === 'user' && (lastMessage.content || '').trim() === trimmed) {
+        newUserMessage = lastMessage
+      } else {
+        newUserMessage = {
+          role: 'user',
+          content: trimmed,
+        }
+      }
+    } else {
+      newUserMessage = {
+        role: 'user',
+        content: trimmed,
+      }
       setMessages((prev) => [...prev, newUserMessage])
     }
 
     try {
       // 如果 skipAddUserMessage=true：用户消息通常已经被 setMessages 追加了，但 state 可能尚未刷新（闭包里还是旧 messages）
-      // 为了保证后端一定能收到“用户刚发的这条”，这里做一次兜底合并。
+      // 为了保证后端一定能收到"用户刚发的这条"，这里做一次兜底合并。
       const messagesToUse = (() => {
+        if (userMessageObj) {
+          // 如果提供了 userMessageObj，使用它来构建消息列表
+          const last = messages[messages.length - 1]
+          if (last && last.role === 'user' && (last.content || '').trim() === trimmed) {
+            return messages
+          }
+          return [...messages, userMessageObj]
+        }
         if (!skipAddUserMessage) return [...messages, newUserMessage]
         const last = messages[messages.length - 1]
         if (last && last.role === 'user' && (last.content || '').trim() === trimmed) return messages
@@ -447,6 +475,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
           const next = [...prev]
           const last = next[next.length - 1]
           if (last && last.role === 'assistant' && (!last.toolCalls || last.toolCalls.length === 0)) {
+            // 保留所有字段（包括 imageUrls, audioUrls 等）
             next[next.length - 1] = { ...last, content: (last.content || '') + deltaText }
             return next
           }
@@ -550,10 +579,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                       if (resultObj && typeof resultObj.image_url === 'string') {
                         imageUrl = resultObj.image_url
                              }
-                      // 处理视频结果
-                      if (resultObj && typeof resultObj.video_url === 'string') {
-                        videoUrl = resultObj.video_url
-                             }
+                      // 处理视频结果（支持 video_url 和 video_path 两种字段名）
+                      if (resultObj) {
+                        videoUrl = resultObj.video_url || resultObj.video_path
+                      }
                       // 处理3D模型结果
                       if (resultObj && typeof resultObj.model_url === 'string') {
                         modelUrl = resultObj.model_url
@@ -601,9 +630,9 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                         scrollToBottom('auto')
                       }
                       // 处理视频结果
-                      if (typeof result.video_url === 'string' && result.video_url) {
-                        const videoUrl: string = result.video_url
-                        
+                      // 支持 video_url 和 video_path 两种字段名
+                      const videoUrl = result.video_url || result.video_path
+                      if (typeof videoUrl === 'string' && videoUrl) {
                         // 将视频添加到画布（提取第一帧作为预览图）
                         await excalidrawRef.current?.addVideo({ videoUrl })
                         scrollToBottom('auto')
@@ -676,13 +705,19 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
     }
   }
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     
-    // 验证文件类型
-    if (!file.type.startsWith('image/')) {
-      alert('只支持图片文件')
+    // 判断是图片还是音频
+    const isImage = file.type.startsWith('image/')
+    const isAudio = file.type.startsWith('audio/') || 
+                    ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma'].some(ext => 
+                      file.name.toLowerCase().endsWith(ext)
+                    )
+    
+    if (!isImage && !isAudio) {
+      alert('只支持图片或音频文件')
       return
     }
     
@@ -690,7 +725,8 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       const formData = new FormData()
       formData.append('file', file)
       
-      const response = await fetch('/api/upload-image', {
+      const endpoint = isImage ? '/api/upload-image' : '/api/upload-audio'
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       })
@@ -700,10 +736,14 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       }
       
       const data = await response.json()
-      setUploadedImages(prev => [...prev, data.url])
+      if (isImage) {
+        setUploadedImages(prev => [...prev, data.url])
+      } else {
+        setUploadedAudios(prev => [...prev, data.url])
+      }
     } catch (error) {
-      console.error('图片上传失败:', error)
-      alert('图片上传失败，请重试')
+      console.error('文件上传失败:', error)
+      alert('文件上传失败，请重试')
     } finally {
       // 清空文件选择，允许重复选择同一文件
       if (fileInputRef.current) {
@@ -716,7 +756,11 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
     setUploadedImages(prev => prev.filter((_, i) => i !== index))
   }
 
-  // 处理粘贴图片
+  const removeUploadedAudio = (index: number) => {
+    setUploadedAudios(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // 处理粘贴文件（图片或音频）
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     try {
       const items = e.clipboardData?.items
@@ -724,7 +768,9 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
-        if (item.type.indexOf('image') !== -1) {
+        const isImage = item.type.indexOf('image') !== -1
+        const isAudio = item.type.indexOf('audio') !== -1
+        if (isImage || isAudio) {
           e.preventDefault()
           const file = item.getAsFile()
           if (!file) continue
@@ -735,7 +781,8 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
               const formData = new FormData()
               formData.append('file', file)
 
-              const response = await fetch('/api/upload-image', {
+              const endpoint = isImage ? '/api/upload-image' : '/api/upload-audio'
+              const response = await fetch(endpoint, {
                 method: 'POST',
                 body: formData,
               })
@@ -745,13 +792,17 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
               }
 
               const data = await response.json()
-              setUploadedImages(prev => [...prev, data.url])
+              if (isImage) {
+                setUploadedImages(prev => [...prev, data.url])
+              } else {
+                setUploadedAudios(prev => [...prev, data.url])
+              }
             } catch (error) {
-              console.error('图片粘贴上传失败:', error)
-              alert('图片粘贴上传失败，请重试')
+              console.error('文件粘贴上传失败:', error)
+              alert('文件粘贴上传失败，请重试')
             }
           })()
-          break // 只处理第一张图片
+          break // 只处理第一个文件
         }
       }
     } catch (error) {
@@ -803,7 +854,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
   }
 
   const handleSend = async () => {
-    if ((!input.trim() && uploadedImages.length === 0) || isLoading) return
+    if ((!input.trim() && uploadedImages.length === 0 && uploadedAudios.length === 0) || isLoading) return
     
     // 如果之前是暂停状态，先重置
     if (isPaused) {
@@ -811,9 +862,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       isPausedRef.current = false
     }
     
-    // 构建消息内容：文本 + 图片URL
+    // 构建消息内容：文本 + 图片URL + 音频URL
     let messageContent = input.trim()
     const imageUrls = [...uploadedImages] // 保存图片URL列表
+    const audioUrls = [...uploadedAudios] // 保存音频URL列表
     
     if (uploadedImages.length > 0) {
       const imageTexts = uploadedImages.map(url => `[图片: ${url}]`).join('\n')
@@ -824,11 +876,21 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       }
     }
     
-    // 创建用户消息，包含图片URL列表
+    if (uploadedAudios.length > 0) {
+      const audioTexts = uploadedAudios.map(url => `[音频: ${url}]`).join('\n')
+      if (messageContent) {
+        messageContent = `${messageContent}\n\n${audioTexts}`
+      } else {
+        messageContent = audioTexts
+      }
+    }
+    
+    // 创建用户消息，包含图片/音频URL列表
     const userMessageObj: Message = {
       role: 'user',
       content: messageContent,
       imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+      audioUrls: audioUrls.length > 0 ? audioUrls : undefined,
     }
     
     // 先添加到消息列表显示
@@ -836,9 +898,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
     
     setInput('')
     setUploadedImages([]) // 清空上传的图片
+    setUploadedAudios([]) // 清空上传的音频
     
-    // 发送消息（skipAddUserMessage=true 因为已经添加了）
-    await sendMessage(messageContent, true)
+    // 发送消息（skipAddUserMessage=true 因为已经添加了，并传递 userMessageObj 确保包含 audioUrls 和 imageUrls）
+    await sendMessage(messageContent, true, userMessageObj)
   }
 
   // 首页创建项目后，会把首条问题写入 sessionStorage：pending_prompt:<canvasId>
@@ -848,8 +911,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
     
     const key = `pending_prompt:${currentCanvasId}`
     const imagesKey = `pending_images:${currentCanvasId}`
+    const audiosKey = `pending_audios:${currentCanvasId}`
     const pending = sessionStorage.getItem(key)
     const pendingImages = sessionStorage.getItem(imagesKey)
+    const pendingAudios = sessionStorage.getItem(audiosKey)
     
     if (!pending || !pending.trim()) return
     
@@ -863,16 +928,28 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       }
     }
     
+    // 解析音频列表
+    let audioUrls: string[] = []
+    if (pendingAudios) {
+      try {
+        audioUrls = JSON.parse(pendingAudios) as string[]
+      } catch (e) {
+        console.error('解析音频列表失败', e)
+      }
+    }
+    
     // 先显示为用户消息（显示在对话最前面）
     const userMessage: Message = {
       role: 'user',
       content: pending.trim(),
       imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+      audioUrls: audioUrls.length > 0 ? audioUrls : undefined,
     }
     
     // 清理 sessionStorage（在设置消息之前清理，避免重复处理）
     sessionStorage.removeItem(key)
     sessionStorage.removeItem(imagesKey)
+    sessionStorage.removeItem(audiosKey)
     
     // 标记需要发送的消息
     pendingSendRef.current = pending.trim()
@@ -901,21 +978,36 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
       
       // 延迟发送，确保状态已更新，并且确保messages已经设置完成
       setTimeout(() => {
-        // 确保messages中有这条消息，如果没有则重新添加
+        // 使用 firstMessage 确保包含 audioUrls 和 imageUrls，以及完整的内容（可能包含音频标记）
+        const userMessageObj: Message = {
+          role: 'user',
+          content: firstMessage.content || messageToSend, // 使用 firstMessage.content 确保包含音频标记
+          imageUrls: firstMessage.imageUrls,
+          audioUrls: firstMessage.audioUrls,
+        }
+        
         setMessages(prev => {
           const hasMessage = prev.some(m => 
             m.role === 'user' && 
             (m.content === messageToSend || m.content?.includes(messageToSend))
           )
           if (!hasMessage) {
-            return [...prev, { role: 'user', content: messageToSend, imageUrls: firstMessage.imageUrls }]
+            return [...prev, userMessageObj]
+          } else {
+            // 如果消息已存在，更新它以包含 audioUrls 和 imageUrls
+            return prev.map(m => {
+              if (m.role === 'user' && (m.content === messageToSend || m.content?.includes(messageToSend))) {
+                return userMessageObj
+              }
+              return m
+            })
           }
-          return prev
         })
         
         // 再延迟一点确保状态更新完成
         setTimeout(() => {
-          sendMessage(messageToSend, true)
+          // 传递 userMessageObj 确保包含 audioUrls 和 imageUrls，使用 firstMessage.content 作为消息内容
+          sendMessage(firstMessage.content || messageToSend, true, userMessageObj)
         }, 50)
       }, 150)
     }
@@ -1436,18 +1528,40 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                           ))}
                         </div>
                       )}
+                      {/* 用户消息中的音频 */}
+                      {message.audioUrls && message.audioUrls.length > 0 && (
+                        <div className="message-audios" style={{ marginTop: message.imageUrls && message.imageUrls.length > 0 ? '8px' : '0' }}>
+                          {message.audioUrls.map((url, audioIndex) => (
+                            <div key={`audio-${index}-${audioIndex}`} className="message-audio" style={{ marginBottom: '8px' }}>
+                              <audio 
+                                src={url} 
+                                controls 
+                                style={{ maxWidth: '100%', borderRadius: '8px' }}
+                              >
+                                您的浏览器不支持音频播放
+                              </audio>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {/* 用户消息文本 */}
                       {(() => {
-                        // 移除图片URL标记，只显示文本内容
+                        // 移除图片和音频URL标记，只显示文本内容
                         const textContent = message.content
                           .split('\n')
-                          .filter(line => !line.trim().startsWith('[图片:'))
+                          .filter(line => !line.trim().startsWith('[图片:') && !line.trim().startsWith('[音频:'))
                           .join('\n')
                           .trim()
                         return textContent ? (
                           <div className="message-text">{textContent}</div>
-                        ) : message.imageUrls && message.imageUrls.length > 0 ? (
-                          <div className="message-text" style={{ fontStyle: 'italic', color: '#9ca3af' }}>（已发送图片）</div>
+                        ) : (message.imageUrls && message.imageUrls.length > 0) || (message.audioUrls && message.audioUrls.length > 0) ? (
+                          <div className="message-text" style={{ fontStyle: 'italic', color: '#9ca3af' }}>
+                            {message.imageUrls && message.imageUrls.length > 0 && message.audioUrls && message.audioUrls.length > 0 
+                              ? '（已发送图片和音频）'
+                              : message.imageUrls && message.imageUrls.length > 0 
+                                ? '（已发送图片）'
+                                : '（已发送音频）'}
+                          </div>
                         ) : null
                       })()}
                     </>
@@ -1477,20 +1591,39 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                 ))}
               </div>
             )}
+            {/* 上传的音频预览 */}
+            {uploadedAudios.length > 0 && (
+              <div className="uploaded-images-preview">
+                {uploadedAudios.map((url, index) => (
+                  <div key={index} className="uploaded-image-item">
+                    <div style={{ fontSize: 12, color: '#e5e7eb', maxWidth: 200, wordBreak: 'break-all' }}>
+                      音频 {index + 1}: {url}
+                    </div>
+                    <button
+                      className="remove-image-btn"
+                      onClick={() => removeUploadedAudio(index)}
+                      title="移除音频"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             
             <div className="input-row">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
+                accept="image/*,audio/*"
+                onChange={handleFileUpload}
                 style={{ display: 'none' }}
               />
               <button
                 className="upload-image-button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isLoading}
-                title="上传图片"
+                title="上传图片或音频"
               >
                 <Paperclip size={18} />
               </button>

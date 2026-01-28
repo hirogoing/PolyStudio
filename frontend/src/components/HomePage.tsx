@@ -97,6 +97,7 @@ export default function HomePage({
   const [query, setQuery] = useState('')
   const [prompt, setPrompt] = useState('')
   const [uploadedImages, setUploadedImages] = useState<string[]>([]) // 上传的图片URL列表
+  const [uploadedAudios, setUploadedAudios] = useState<string[]>([]) // 上传的音频URL列表
   const [creating, setCreating] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -131,13 +132,19 @@ export default function HomePage({
     return projects.filter((p) => (p.name || '').toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
   }, [projects, query])
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     
-    // 验证文件类型
-    if (!file.type.startsWith('image/')) {
-      alert('只支持图片文件')
+    // 判断是图片还是音频
+    const isImage = file.type.startsWith('image/')
+    const isAudio = file.type.startsWith('audio/') || 
+                    ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma'].some(ext => 
+                      file.name.toLowerCase().endsWith(ext)
+                    )
+    
+    if (!isImage && !isAudio) {
+      alert('只支持图片或音频文件')
       return
     }
     
@@ -145,7 +152,8 @@ export default function HomePage({
       const formData = new FormData()
       formData.append('file', file)
       
-      const response = await fetch('/api/upload-image', {
+      const endpoint = isImage ? '/api/upload-image' : '/api/upload-audio'
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       })
@@ -155,10 +163,14 @@ export default function HomePage({
       }
       
       const data = await response.json()
-      setUploadedImages(prev => [...prev, data.url])
+      if (isImage) {
+        setUploadedImages(prev => [...prev, data.url])
+      } else {
+        setUploadedAudios(prev => [...prev, data.url])
+      }
     } catch (error) {
-      console.error('图片上传失败:', error)
-      alert('图片上传失败，请重试')
+      console.error('文件上传失败:', error)
+      alert('文件上传失败，请重试')
     } finally {
       // 清空文件选择，允许重复选择同一文件
       if (fileInputRef.current) {
@@ -169,6 +181,10 @@ export default function HomePage({
 
   const removeUploadedImage = (index: number) => {
     setUploadedImages(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const removeUploadedAudio = (index: number) => {
+    setUploadedAudios(prev => prev.filter((_, i) => i !== index))
   }
 
   const deleteProject = async (e: React.MouseEvent, projectId: string) => {
@@ -184,7 +200,7 @@ export default function HomePage({
     }
   }
 
-  const createProjectAndEnter = async (firstPrompt?: string, images?: string[]) => {
+  const createProjectAndEnter = async (firstPrompt?: string, images?: string[], audios?: string[]) => {
     if (creating) return
     setCreating(true)
     try {
@@ -204,7 +220,7 @@ export default function HomePage({
         body: JSON.stringify(payload),
       })
 
-      // 构建消息内容：文本 + 图片URL
+      // 构建消息内容：文本 + 图片URL + 音频URL
       let messageContent = (firstPrompt || '').trim()
       if (images && images.length > 0) {
         const imageTexts = images.map(url => `[图片: ${url}]`).join('\n')
@@ -214,13 +230,25 @@ export default function HomePage({
           messageContent = imageTexts
         }
       }
+      if (audios && audios.length > 0) {
+        const audioTexts = audios.map(url => `[音频: ${url}]`).join('\n')
+        if (messageContent) {
+          messageContent = `${messageContent}\n\n${audioTexts}`
+        } else {
+          messageContent = audioTexts
+        }
+      }
 
       if (messageContent) {
-        // 存储完整的消息内容（包括图片）
+        // 存储完整的消息内容（包括图片和音频）
         sessionStorage.setItem(`pending_prompt:${id}`, messageContent)
         // 同时存储图片URL列表，用于在对话界面显示
         if (images && images.length > 0) {
           sessionStorage.setItem(`pending_images:${id}`, JSON.stringify(images))
+        }
+        // 同时存储音频URL列表，用于在对话界面显示
+        if (audios && audios.length > 0) {
+          sessionStorage.setItem(`pending_audios:${id}`, JSON.stringify(audios))
         }
       }
       setCanvasIdToUrl(id)
@@ -275,20 +303,39 @@ export default function HomePage({
                 ))}
               </div>
             )}
+            {/* 上传的音频预览 */}
+            {uploadedAudios.length > 0 && (
+              <div className="home__uploaded-images">
+                {uploadedAudios.map((url, index) => (
+                  <div key={index} className="home__uploaded-image-item">
+                    <div style={{ fontSize: 12, color: '#e5e7eb', maxWidth: 200, wordBreak: 'break-all' }}>
+                      音频 {index + 1}: {url.split('/').pop()}
+                    </div>
+                    <button
+                      className="home__remove-image-btn"
+                      onClick={() => removeUploadedAudio(index)}
+                      title="移除音频"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             
             <div className="home__input-row">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
+                accept="image/*,audio/*"
+                onChange={handleFileUpload}
                 style={{ display: 'none' }}
               />
               <button
                 className="home__upload-btn"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={creating}
-                title="上传图片"
+                title="上传图片或音频"
               >
                 <Paperclip size={18} />
               </button>
@@ -301,8 +348,8 @@ export default function HomePage({
                   if (e.key === 'Enter' && !e.shiftKey) {
                     // 回车键（非 Shift+Enter）触发创建项目
                     e.preventDefault()
-                    if (!creating && (prompt.trim() || uploadedImages.length > 0)) {
-                      createProjectAndEnter(prompt, uploadedImages)
+                    if (!creating && (prompt.trim() || uploadedImages.length > 0 || uploadedAudios.length > 0)) {
+                      createProjectAndEnter(prompt, uploadedImages, uploadedAudios)
                     }
                   }
                 }}
@@ -313,7 +360,9 @@ export default function HomePage({
 
                     for (let i = 0; i < items.length; i++) {
                       const item = items[i]
-                      if (item.type.indexOf('image') !== -1) {
+                      const isImage = item.type.indexOf('image') !== -1
+                      const isAudio = item.type.indexOf('audio') !== -1
+                      if (isImage || isAudio) {
                         e.preventDefault()
                         const file = item.getAsFile()
                         if (!file) continue
@@ -324,7 +373,8 @@ export default function HomePage({
                             const formData = new FormData()
                             formData.append('file', file)
 
-                            const response = await fetch('/api/upload-image', {
+                            const endpoint = isImage ? '/api/upload-image' : '/api/upload-audio'
+                            const response = await fetch(endpoint, {
                               method: 'POST',
                               body: formData,
                             })
@@ -334,13 +384,17 @@ export default function HomePage({
                             }
 
                             const data = await response.json()
-                            setUploadedImages(prev => [...prev, data.url])
+                            if (isImage) {
+                              setUploadedImages(prev => [...prev, data.url])
+                            } else {
+                              setUploadedAudios(prev => [...prev, data.url])
+                            }
                           } catch (error) {
-                            console.error('图片粘贴上传失败:', error)
-                            alert('图片粘贴上传失败，请重试')
+                            console.error('文件粘贴上传失败:', error)
+                            alert('文件粘贴上传失败，请重试')
                           }
                         })()
-                        break // 只处理第一张图片
+                        break // 只处理第一个文件
                       }
                     }
                   } catch (error) {
@@ -354,8 +408,8 @@ export default function HomePage({
               <div className="home__hint">按回车键或点击右侧按钮创建项目并进入画板</div>
               <button
                 className="home__btn home__btn--primary"
-                onClick={() => createProjectAndEnter(prompt, uploadedImages)}
-                disabled={creating || (!prompt.trim() && uploadedImages.length === 0)}
+                onClick={() => createProjectAndEnter(prompt, uploadedImages, uploadedAudios)}
+                disabled={creating || (!prompt.trim() && uploadedImages.length === 0 && uploadedAudios.length === 0)}
               >
                 开始
                 <ArrowRight size={16} />

@@ -34,9 +34,11 @@ STORAGE_DIR = BASE_DIR / "storage"
 IMAGES_DIR = STORAGE_DIR / "images"
 MODELS_DIR = STORAGE_DIR / "models"
 VIDEOS_DIR = STORAGE_DIR / "videos"
+AUDIOS_DIR = STORAGE_DIR / "audios"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 配置静态文件服务 - 用于访问保存的图片
 # 这样前端可以通过 /storage/images/文件名 访问图片

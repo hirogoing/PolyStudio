@@ -92,6 +92,75 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
 
 
+@router.post("/upload-audio")
+async def upload_audio(file: UploadFile = File(...)):
+    """
+    上传音频到 storage/audios 目录
+    支持的格式：mp3, wav, m4a, aac, ogg, flac, wma
+    
+    Returns:
+        上传后的音频URL（相对路径，如 /storage/audios/xxx.mp3 或 /storage/audios/xxx.wav）
+    """
+    try:
+        # 确保上传目录存在
+        BASE_DIR = Path(__file__).parent.parent.parent
+        AUDIOS_DIR = BASE_DIR / "storage" / "audios"
+        AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # 验证文件类型
+        content_type = file.content_type or ""
+        # 支持的音频 MIME 类型
+        allowed_audio_types = [
+            "audio/",  # 通用音频类型（audio/mpeg, audio/wav, audio/mp4 等）
+            "audio/wav",
+            "audio/x-wav",
+            "audio/wave",
+            "audio/mpeg",  # mp3
+            "audio/mp4",  # m4a
+            "audio/aac",
+            "audio/ogg",
+            "audio/flac",
+            "application/octet-stream"  # 有些浏览器可能不识别音频类型
+        ]
+        is_audio = any(content_type.startswith(t) for t in allowed_audio_types)
+        
+        # 也检查文件扩展名
+        original_filename = file.filename or "audio"
+        ext = os.path.splitext(original_filename)[1].lower()
+        allowed_extensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"]
+        
+        if not is_audio and ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"只支持音频文件，支持的格式：{', '.join(allowed_extensions)}"
+            )
+        
+        # 生成唯一文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+        
+        # 获取文件扩展名，如果没有则默认使用 .mp3
+        if not ext or ext not in allowed_extensions:
+            ext = ".mp3"
+        
+        filename = f"upload_{timestamp}_{unique_id}{ext}"
+        file_path = AUDIOS_DIR / filename
+        
+        # 保存文件
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # 返回相对路径
+        audio_url = f"/storage/audios/{filename}"
+        return {"url": audio_url, "filename": filename}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """
