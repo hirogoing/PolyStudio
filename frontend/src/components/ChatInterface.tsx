@@ -25,6 +25,7 @@ interface ToolCall {
   videoUrl?: string
   modelUrl?: string
   modelFormat?: 'obj' | 'glb'
+  audioUrl?: string
 }
 
 interface Message {
@@ -428,12 +429,18 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
           content += '\n' + msg.postToolContent
         }
         if (msg.toolCalls) {
-          const urls = msg.toolCalls
+          const imageUrls = msg.toolCalls
             .map((tc) => tc.imageUrl)
             .filter(Boolean) as string[]
-          if (urls.length) {
-            content += `\n\nGenerated Image:\n${urls.map((u) => `- ${u}`).join('\n')}`
-        }
+          if (imageUrls.length) {
+            content += `\n\nGenerated Image:\n${imageUrls.map((u) => `- ${u}`).join('\n')}`
+          }
+          const audioUrls = msg.toolCalls
+            .map((tc) => tc.audioUrl)
+            .filter(Boolean) as string[]
+          if (audioUrls.length) {
+            content += `\n\nGenerated Audio:\n${audioUrls.map((u) => `- ${u}`).join('\n')}`
+          }
         }
         return { role: msg.role, content }
       })
@@ -571,6 +578,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                     let videoUrl: string | undefined = tc.videoUrl
                     let modelUrl: string | undefined = tc.modelUrl
                     let modelFormat: 'obj' | 'glb' | undefined = tc.modelFormat
+                    let audioUrl: string | undefined = tc.audioUrl
                            try {
                              const resultObj = JSON.parse(event.content)
                              if (resultObj && resultObj.prompt && (!updatedArgs || Object.keys(updatedArgs).length === 0)) {
@@ -588,6 +596,10 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                         modelUrl = resultObj.model_url
                         modelFormat = (resultObj.format || 'obj') as 'obj' | 'glb'
                              }
+                      // 处理音频结果
+                      if (resultObj && typeof resultObj.audio_url === 'string') {
+                        audioUrl = resultObj.audio_url
+                      }
                            } catch (e) {
                              // ignore
                            }
@@ -615,6 +627,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                       videoUrl,
                       modelUrl,
                       modelFormat,
+                      audioUrl,
                     }
                   })
 
@@ -1499,6 +1512,25 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                                 >
                                   您的浏览器不支持视频播放
                                 </video>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* 音频显示 */}
+                      {message.toolCalls?.some(tc => tc.audioUrl) && (
+                        <div className="message-audios" style={{ marginTop: '12px' }}>
+                          {message.toolCalls
+                            .filter(tc => tc.audioUrl)
+                            .map(tc => (
+                              <div key={`audio-${tc.id}`} className="message-audio" style={{ marginBottom: '8px' }}>
+                                <audio 
+                                  src={tc.audioUrl} 
+                                  controls 
+                                  style={{ width: '100%', maxWidth: '400px' }}
+                                >
+                                  您的浏览器不支持音频播放
+                                </audio>
                               </div>
                             ))}
                         </div>

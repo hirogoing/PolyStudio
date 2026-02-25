@@ -15,4 +15,5 @@ Pillow==10.4.0
 requests>=2.31.0
 moviepy>=1.0.3
 opencv-python>=4.8.0
+pydub>=0.25.1
 
