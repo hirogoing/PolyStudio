@@ -3,7 +3,7 @@
 
 # 激活 conda 环境
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate polystudio
+conda activate agentImage
 
 # 进入后端目录
 cd "$(dirname "$0")"
