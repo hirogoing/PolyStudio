@@ -46,6 +46,8 @@ type Props = {
   on3DModelClick?: (modelUrl: string, format: 'obj' | 'glb', mtlUrl?: string, textureUrl?: string) => void
   onVideoClick?: (videoUrl: string) => void
   onModalClose?: () => void
+  /** Called once when the Excalidraw API is first available (canvas is ready to accept addImage/addVideo calls) */
+  onReady?: () => void
 }
 
 function sanitizeAppState(appState: any) {
@@ -148,7 +150,7 @@ function computeNextPosition(elements: any[], maxNumPerRow = 4, spacing = 20) {
 }
 
 export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
-  ({ canvasId, theme, initialData, onDataChange, onImageToInput, onThemeChange, on3DModelClick, onVideoClick, onModalClose: _onModalClose }, ref) => {
+  ({ canvasId, theme, initialData, onDataChange, onImageToInput, onThemeChange, on3DModelClick, onVideoClick, onModalClose: _onModalClose, onReady }, ref) => {
     const [api, setApi] = useState<any>(null)
     const saveTimer = useRef<number | null>(null)
     const imageToInputCallbackRef = useRef<((url: string) => void) | null>(null)
@@ -1020,43 +1022,81 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
         addVideo: async ({ videoUrl }) => {
           if (!api) return
 
-          // 从视频中提取第一帧作为预览图
-          const previewImageUrl = await new Promise<string>((resolve, reject) => {
+          // 从视频中提取第一帧作为预览图（设置超时，防止后台标签页挂起）
+          const previewImageUrl = await new Promise<string>((resolve) => {
+            let resolved = false
+            const safeResolve = (val: string) => {
+              if (resolved) return
+              resolved = true
+              clearTimeout(timeoutId)
+              resolve(val)
+            }
+
+            // 生成视频播放图标占位图（当截帧失败/超时时使用）
+            const makeFallbackThumbnail = (w = 640, h = 360): string => {
+              const canvas = document.createElement('canvas')
+              canvas.width = w
+              canvas.height = h
+              const ctx = canvas.getContext('2d')
+              if (!ctx) return ''
+              ctx.fillStyle = '#1a1a1a'
+              ctx.fillRect(0, 0, w, h)
+              const cx = w / 2, cy = h / 2
+              const r = Math.min(w, h) * 0.15
+              ctx.fillStyle = 'rgba(255,255,255,0.85)'
+              ctx.beginPath()
+              ctx.arc(cx, cy, r, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.fillStyle = 'rgba(30,30,30,0.9)'
+              ctx.beginPath()
+              ctx.moveTo(cx - r * 0.25, cy - r * 0.45)
+              ctx.lineTo(cx - r * 0.25, cy + r * 0.45)
+              ctx.lineTo(cx + r * 0.55, cy)
+              ctx.closePath()
+              ctx.fill()
+              return canvas.toDataURL('image/jpeg', 0.85)
+            }
+
+            // 4 秒超时：后台标签页 video.onseeked 可能永远不触发
+            const timeoutId = setTimeout(() => {
+              safeResolve(makeFallbackThumbnail())
+            }, 4000)
+
             const video = document.createElement('video')
             video.crossOrigin = 'anonymous'
             video.preload = 'metadata'
-            
+
             video.onloadedmetadata = () => {
               // 设置视频到第一帧
               video.currentTime = 0.1 // 稍微偏移，确保能获取到帧
             }
-            
+
             video.onseeked = () => {
               // 创建canvas来捕获视频帧
               const canvas = document.createElement('canvas')
               canvas.width = video.videoWidth || 640
               canvas.height = video.videoHeight || 360
               const ctx = canvas.getContext('2d')
-              
+
               if (!ctx) {
-                reject(new Error('无法创建 canvas context'))
+                safeResolve(makeFallbackThumbnail(canvas.width, canvas.height))
                 return
               }
-              
+
               // 绘制视频帧到canvas
               ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-              
+
               // 在预览图上绘制播放图标（小一些，透明灰白色风格）
               const centerX = canvas.width / 2
               const centerY = canvas.height / 2
               const iconSize = Math.min(canvas.width, canvas.height) * 0.12 // 图标大小为画布的12%（更小）
-              
+
               // 绘制半透明圆形背景（灰白色，透明）
               ctx.fillStyle = 'rgba(255, 255, 255, 0.7)' // 半透明白色
               ctx.beginPath()
               ctx.arc(centerX, centerY, iconSize, 0, Math.PI * 2)
               ctx.fill()
-              
+
               // 绘制播放三角形（灰白色，更透明）
               ctx.fillStyle = 'rgba(100, 100, 100, 0.9)' // 灰白色
               ctx.beginPath()
@@ -1066,16 +1106,15 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
               ctx.lineTo(centerX + triangleSize * 0.7, centerY)
               ctx.closePath()
               ctx.fill()
-              
+
               // 转换为data URL
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
-              resolve(dataUrl)
+              safeResolve(canvas.toDataURL('image/jpeg', 0.9))
             }
-            
+
             video.onerror = () => {
-              reject(new Error('加载视频失败'))
+              safeResolve(makeFallbackThumbnail())
             }
-            
+
             video.src = videoUrl
           })
 
@@ -1317,7 +1356,11 @@ export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, Props>(
       <div className="excalidraw-host" data-canvas-id={canvasId}>
         <Excalidraw
           langCode="zh-CN"
-          excalidrawAPI={(instance) => setApi(instance)}
+          excalidrawAPI={(instance) => {
+            setApi(instance)
+            // 通知父组件画布已就绪（可立即接受 addImage/addVideo 调用）
+            onReady?.()
+          }}
           initialData={initial as any}
           onChange={(elements: readonly any[], appState: any, files: any) => {
             const nextTheme = appState?.theme === 'light' ? 'light' : appState?.theme === 'dark' ? 'dark' : null

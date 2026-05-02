@@ -89,6 +89,37 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false)
   const pendingSendRef = useRef<string | null>(null) // 标记待发送的消息
 
+  // 待插入画布的媒体队列（当 excalidrawRef 不可用时先缓存，待画布就绪后自动执行）
+  type PendingMedia =
+    | { type: 'image'; url: string }
+    | { type: 'video'; videoUrl: string }
+    | { type: '3d_model'; previewUrl: string; modelUrl: string; format: 'obj' | 'glb'; mtlUrl?: string; textureUrl?: string }
+  const pendingMediaRef = useRef<PendingMedia[]>([])
+
+  // 将媒体操作放入队列或立即执行
+  const enqueueMedia = (item: PendingMedia) => {
+    const canvas = excalidrawRef.current
+    if (canvas) {
+      if (item.type === 'image') canvas.addImage({ url: item.url })
+      else if (item.type === 'video') canvas.addVideo({ videoUrl: item.videoUrl })
+      else if (item.type === '3d_model') canvas.add3DModelPreview({ previewUrl: item.previewUrl, modelUrl: item.modelUrl, format: item.format, mtlUrl: item.mtlUrl, textureUrl: item.textureUrl })
+    } else {
+      pendingMediaRef.current.push(item)
+    }
+  }
+
+  // 画布就绪时清空队列
+  const drainPendingMedia = () => {
+    const canvas = excalidrawRef.current
+    if (!canvas) return
+    const queue = pendingMediaRef.current.splice(0)
+    for (const item of queue) {
+      if (item.type === 'image') canvas.addImage({ url: item.url })
+      else if (item.type === 'video') canvas.addVideo({ videoUrl: item.videoUrl })
+      else if (item.type === '3d_model') canvas.add3DModelPreview({ previewUrl: item.previewUrl, modelUrl: item.modelUrl, format: item.format, mtlUrl: item.mtlUrl, textureUrl: item.textureUrl })
+    }
+  }
+
   // 清理参数中的base64数据，避免保存到历史记录
   const sanitizeArguments = (args: any): any => {
     if (!args || typeof args !== 'object') return args
@@ -512,17 +543,19 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
               } catch (_) { /* ignore */ }
 
               // 处理画布插入（图片/视频/3D模型）
+              // 使用 enqueueMedia：若画布未就绪则先排队，待 onReady 时自动补充执行
               try {
                 const result = JSON.parse(event.content)
                 if (typeof result.image_url === 'string' && result.image_url) {
-                  excalidrawRef.current?.addImage({ url: result.image_url })
+                  enqueueMedia({ type: 'image', url: result.image_url })
                 }
                 const vUrl = result.video_url || result.video_path
                 if (typeof vUrl === 'string' && vUrl) {
-                  excalidrawRef.current?.addVideo({ videoUrl: vUrl })
+                  enqueueMedia({ type: 'video', videoUrl: vUrl })
                 }
                 if (typeof result.model_url === 'string' && result.model_url) {
-                  excalidrawRef.current?.add3DModelPreview({
+                  enqueueMedia({
+                    type: '3d_model',
                     previewUrl: result.preview_url || result.model_url,
                     modelUrl: result.model_url,
                     format: (result.format || 'obj') as 'obj' | 'glb',
@@ -868,35 +901,24 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                       const result = JSON.parse(event.content)
                       // 处理图片结果
                       if (typeof result.image_url === 'string' && result.image_url) {
-                        const imgUrl: string = result.image_url
-                        
-                        // 新画布：将图片插入 Excalidraw（插入后会触发 onChange，从而自动保存到后端）
-                        await excalidrawRef.current?.addImage({ url: imgUrl })
+                        enqueueMedia({ type: 'image', url: result.image_url })
                         scrollToBottom('auto')
                       }
-                      // 处理视频结果
-                      // 支持 video_url 和 video_path 两种字段名
+                      // 处理视频结果（支持 video_url 和 video_path 两种字段名）
                       const videoUrl = result.video_url || result.video_path
                       if (typeof videoUrl === 'string' && videoUrl) {
-                        // 将视频添加到画布（提取第一帧作为预览图）
-                        await excalidrawRef.current?.addVideo({ videoUrl })
+                        enqueueMedia({ type: 'video', videoUrl })
                         scrollToBottom('auto')
                       }
                       // 处理3D模型结果
                       if (typeof result.model_url === 'string' && result.model_url) {
-                        const modelUrl: string = result.model_url
-                        const format = (result.format || 'obj') as 'obj' | 'glb'
-                        const previewUrl = result.preview_url || result.model_url
-                        const mtlUrl = result.mtl_url
-                        const textureUrl = result.texture_url
-                        
-                        // 将预览图添加到画板（作为普通图片元素）
-                        await excalidrawRef.current?.add3DModelPreview({ 
-                          previewUrl, 
-                          modelUrl, 
-                          format,
-                          mtlUrl,
-                          textureUrl
+                        enqueueMedia({
+                          type: '3d_model',
+                          previewUrl: result.preview_url || result.model_url,
+                          modelUrl: result.model_url,
+                          format: (result.format || 'obj') as 'obj' | 'glb',
+                          mtlUrl: result.mtl_url,
+                          textureUrl: result.texture_url,
                         })
                         scrollToBottom('auto')
                       }
@@ -1466,6 +1488,7 @@ const ChatInterface = ({ initialCanvasId, theme, onToggleTheme, onSetTheme }: Ch
                 canvasId={currentCanvasId}
                 theme={theme}
                 initialData={currentCanvasData}
+                onReady={drainPendingMedia}
                 onDataChange={(data) => {
                   updateCurrentCanvasData(() => data)
                 }}
