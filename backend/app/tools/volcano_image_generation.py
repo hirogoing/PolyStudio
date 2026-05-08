@@ -36,7 +36,7 @@ if ENV_PATH.exists():
 # 从环境变量获取配置
 VOLCANO_API_KEY = os.getenv("VOLCANO_API_KEY", "").strip()
 VOLCANO_BASE_URL = os.getenv("VOLCANO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3").strip()
-VOLCANO_IMAGE_MODEL = os.getenv("VOLCANO_IMAGE_MODEL", "seedream-4.5").strip()
+VOLCANO_IMAGE_MODEL = os.getenv("VOLCANO_IMAGE_MODEL", "doubao-seedream-4-5-251128").strip()
 # 若编辑模型不同，可单独配置；缺省复用生成模型
 VOLCANO_EDIT_MODEL = os.getenv("VOLCANO_EDIT_MODEL", VOLCANO_IMAGE_MODEL).strip()
 # Mock 模式配置

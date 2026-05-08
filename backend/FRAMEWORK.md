@@ -248,7 +248,7 @@ backend/
 **环境变量：**
 - `VOLCANO_API_KEY` - 火山引擎API密钥
 - `VOLCANO_BASE_URL` - API基础URL
-- `VOLCANO_IMAGE_MODEL` - 生成模型（默认：seedream-4.5）
+- `VOLCANO_IMAGE_MODEL` - 生成模型（默认：doubao-seedream-4-5-251128）
 - `VOLCANO_EDIT_MODEL` - 编辑模型（默认：同生成模型）
 
 ---
@@ -400,8 +400,8 @@ RECURSION_LIMIT=200
 # 火山引擎配置
 VOLCANO_API_KEY=YOUR_VOLCANO_API_KEY
 VOLCANO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-VOLCANO_IMAGE_MODEL=seedream-4.5
-VOLCANO_EDIT_MODEL=seedream-4.5
+VOLCANO_IMAGE_MODEL=doubao-seedream-4-5-251128
+VOLCANO_EDIT_MODEL=doubao-seedream-4-5-251128
 
 # 腾讯云混元生3D配置
 TENCENT_AI3D_API_KEY=YOUR_TENCENT_AI3D_API_KEY
