@@ -3,8 +3,8 @@ uvicorn[standard]==0.24.0
 langchain==1.0.0
 langchain-core==1.0.0
 langchain-openai==1.0.0
-langgraph>=1.0.0,<1.1.0
-langgraph-prebuilt>=1.0.0,<1.1.0
+langgraph>=1.1.0,<1.2.0
+langgraph-prebuilt>=1.0.11,<1.1.0
 python-dotenv==1.0.0
 pydantic>=2.7.4,<3.0.0
 sse-starlette==1.8.2
@@ -16,4 +16,5 @@ requests>=2.31.0
 moviepy>=1.0.3
 opencv-python>=4.8.0
 pydub>=0.25.1
+python-multipart>=0.0.27
 
